@@ -3,23 +3,30 @@ from torch import nn
 
 
 class RAYVAE(nn.Module):
-    """Tiny 8x-compression VAE prototype: 512x512 -> 64x64x4."""
+    """Compact 8x spatial-compression VAE prototype.
 
-    def __init__(self, latent_channels: int = 4):
+    For the default 64x64 prototype this maps:
+        RGB image:  [B, 3, 64, 64]
+        latent:     [B, 4, 8, 8]
+
+    The architecture is intentionally small for free-GPU experimentation and
+    can later be widened/deepened for the larger RAY-IMAGE configurations.
+    """
+
+    def __init__(self, latent_channels: int = 4, base_channels: int = 32):
         super().__init__()
+        c = base_channels
         self.encoder = nn.Sequential(
-            nn.Conv2d(3, 32, 4, 2, 1), nn.SiLU(),
-            nn.Conv2d(32, 64, 4, 2, 1), nn.SiLU(),
-            nn.Conv2d(64, 128, 4, 2, 1), nn.SiLU(),
-            nn.Conv2d(128, 256, 4, 2, 1), nn.SiLU(),
-            nn.Conv2d(256, latent_channels * 2, 3, 1, 1),
+            nn.Conv2d(3, c, 4, 2, 1), nn.SiLU(),
+            nn.Conv2d(c, c * 2, 4, 2, 1), nn.SiLU(),
+            nn.Conv2d(c * 2, c * 4, 4, 2, 1), nn.SiLU(),
+            nn.Conv2d(c * 4, latent_channels * 2, 3, 1, 1),
         )
         self.decoder = nn.Sequential(
-            nn.Conv2d(latent_channels, 256, 3, 1, 1), nn.SiLU(),
-            nn.ConvTranspose2d(256, 128, 4, 2, 1), nn.SiLU(),
-            nn.ConvTranspose2d(128, 64, 4, 2, 1), nn.SiLU(),
-            nn.ConvTranspose2d(64, 32, 4, 2, 1), nn.SiLU(),
-            nn.ConvTranspose2d(32, 3, 4, 2, 1), nn.Sigmoid(),
+            nn.Conv2d(latent_channels, c * 4, 3, 1, 1), nn.SiLU(),
+            nn.ConvTranspose2d(c * 4, c * 2, 4, 2, 1), nn.SiLU(),
+            nn.ConvTranspose2d(c * 2, c, 4, 2, 1), nn.SiLU(),
+            nn.ConvTranspose2d(c, 3, 4, 2, 1), nn.Sigmoid(),
         )
 
     def encode(self, x):
