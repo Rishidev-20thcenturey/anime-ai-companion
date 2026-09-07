@@ -1,12 +1,11 @@
-"""Create a tiny synthetic captioned dataset for end-to-end RAY-IMAGE tests.
+"""Create a richer synthetic captioned dataset for RAY-IMAGE toy training.
 
-This dataset is deliberately simple: colored geometric shapes with captions.
-It is useful for checking that training learns a signal before spending GPU
-hours on a real image dataset.
+Four colors x three shapes are rendered with randomized position, scale, and
+background jitter. The caption remains the semantic class label.
 """
 import argparse
 import json
-import math
+import random
 from pathlib import Path
 
 from PIL import Image, ImageDraw
@@ -22,11 +21,18 @@ SHAPES = ("circle", "square", "triangle")
 
 
 def draw_shape(size, color_name, shape, seed):
-    image = Image.new("RGB", (size, size), (245, 245, 245))
+    rng = random.Random(seed)
+    bg = tuple(rng.randint(238, 250) for _ in range(3))
+    image = Image.new("RGB", (size, size), bg)
     draw = ImageDraw.Draw(image)
-    margin = 10 + (seed % 8)
-    x0, y0 = margin, margin
-    x1, y1 = size - margin, size - margin
+    box_size = rng.randint(int(size * 0.42), int(size * 0.70))
+    cx = rng.randint(size // 3, size * 2 // 3)
+    cy = rng.randint(size // 3, size * 2 // 3)
+    half = box_size // 2
+    x0 = max(2, cx - half)
+    y0 = max(2, cy - half)
+    x1 = min(size - 2, cx + half)
+    y1 = min(size - 2, cy + half)
     color = COLORS[color_name]
 
     if shape == "circle":
@@ -34,7 +40,6 @@ def draw_shape(size, color_name, shape, seed):
     elif shape == "square":
         draw.rectangle((x0, y0, x1, y1), fill=color)
     else:
-        cx = size // 2
         draw.polygon([(cx, y0), (x1, y1), (x0, y1)], fill=color)
     return image
 
@@ -42,8 +47,9 @@ def draw_shape(size, color_name, shape, seed):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", default="data/toy")
-    parser.add_argument("--samples", type=int, default=120)
+    parser.add_argument("--samples", type=int, default=2048)
     parser.add_argument("--size", type=int, default=64)
+    parser.add_argument("--seed", type=int, default=1337)
     args = parser.parse_args()
 
     root = Path(args.output)
@@ -55,15 +61,14 @@ def main():
     with manifest.open("w", encoding="utf-8") as f:
         for i in range(args.samples):
             color, shape = combinations[i % len(combinations)]
-            # Slowly vary the geometry while keeping the caption class stable.
-            seed = int(abs(math.sin(i * 12.9898)) * 10000)
-            image = draw_shape(args.size, color, shape, seed)
+            image = draw_shape(args.size, color, shape, args.seed + i)
             name = f"{i:06d}.png"
             image.save(image_dir / name)
             caption = f"a {color} {shape}"
             f.write(json.dumps({"image": f"images/{name}", "text": caption}) + "\n")
 
     print(f"created {args.samples} samples")
+    print(f"classes={len(combinations)}")
     print(f"manifest: {manifest}")
 
 
