@@ -7,35 +7,20 @@ from PIL import Image
 
 from .config import RAYConfig
 from .dataset import encode_text
-from .dit import RAYDiT
 from .flow import euler_sample
-from .text_encoder import RAYTextEncoder
-from .vae import RAYVAE
+from .utils import build_models, load_checkpoint, load_pretrained
 
 
 def load_models(checkpoint_path, device):
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = load_checkpoint(checkpoint_path, device)
     raw_cfg = checkpoint.get("config", {})
     cfg = RAYConfig(**{k: v for k, v in raw_cfg.items() if k in RAYConfig.__dataclass_fields__})
 
-    vae = RAYVAE(cfg.latent_channels, cfg.vae_base).to(device)
-    text_encoder = RAYTextEncoder(cfg.vocab_size, cfg.text_dim, cfg.max_tokens).to(device)
-    dit = RAYDiT(
-        cfg.latent_channels,
-        cfg.model_dim,
-        cfg.depth,
-        cfg.heads,
-        cfg.patch_size,
-        cfg.text_dim,
-    ).to(device)
-
-    vae.load_state_dict(checkpoint["vae"])
-    text_encoder.load_state_dict(checkpoint["text_encoder"])
-    dit.load_state_dict(checkpoint["dit"])
-    vae.eval()
-    text_encoder.eval()
-    dit.eval()
-    return cfg, checkpoint["vocab"], vae, text_encoder, dit
+    modules = build_models(cfg, device)
+    load_pretrained(modules, checkpoint, device)
+    for module in modules.values():
+        module.eval()
+    return cfg, checkpoint["vocab"], modules["vae"], modules["text_encoder"], modules["dit"]
 
 
 def main():

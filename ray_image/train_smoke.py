@@ -7,26 +7,16 @@ import torch
 import torch.nn.functional as F
 
 from .config import RAYConfig
-from .dit import RAYDiT
 from .flow import sample_flow_pair
-from .text_encoder import RAYTextEncoder
-from .vae import RAYVAE
+from .utils import build_models
 
 
 def main():
     cfg = RAYConfig()
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    vae = RAYVAE(cfg.latent_channels, cfg.vae_base).to(device)
-    text = RAYTextEncoder(cfg.vocab_size, cfg.text_dim, cfg.max_tokens).to(device)
-    dit = RAYDiT(
-        cfg.latent_channels,
-        cfg.model_dim,
-        cfg.depth,
-        cfg.heads,
-        cfg.patch_size,
-        cfg.text_dim,
-    ).to(device)
+    models = build_models(cfg, device)
+    vae, text, dit = models["vae"], models["text_encoder"], models["dit"]
 
     images = torch.rand(2, 3, cfg.image_size, cfg.image_size, device=device)
     tokens = torch.randint(0, cfg.vocab_size, (2, cfg.max_tokens), device=device)

@@ -48,16 +48,38 @@ python -m ray_image.train \
   --save checkpoints/ray_image_v0_1.pt
 ```
 
-Every 100 steps a full checkpoint is written. A later free-GPU session can resume:
+Every 100 steps a full checkpoint is written. All training entry points take an
+optional `--seed` (default 0) for reproducible runs. A later free-GPU session
+can resume (checkpoints embed the optimizer state and vocabulary):
 
 ```bash
 python -m ray_image.train \
   --manifest data/toy/manifest.jsonl \
   --steps 2000 \
   --batch-size 8 \
+  --seed 0 \
   --resume checkpoints/ray_image_v0_1.pt \
   --save checkpoints/ray_image_v0_1.pt
 ```
+
+### Two-stage training (roadmap item 2)
+
+For stable latents before learning the generator, first train the VAE alone,
+then train the text->latent flow generator with that frozen VAE:
+
+```bash
+python -m ray_image.train_vae \
+  --manifest data/toy/manifest.jsonl \
+  --steps 1000 --batch-size 16 --save checkpoints/vae.pt
+
+python -m ray_image.train_generator \
+  --manifest data/toy/manifest.jsonl \
+  --vae checkpoints/vae.pt \
+  --steps 8000 --batch-size 8 --save checkpoints/ray_image_stage2.pt
+```
+
+A `.pt` checkpoint from either stage is interchangeable with `generate.py` as
+long as it carries the VAE, text encoder, DiT and `vocab`.
 
 ## 5. Generate
 
