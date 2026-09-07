@@ -16,14 +16,16 @@ def sample_flow_pair(x0: torch.Tensor):
 
 
 @torch.no_grad()
-def euler_sample(model, text, shape, steps=20, device=None):
+def euler_sample(model, text, shape, steps=20, device=None, text_mask=None):
     """Generate a latent by integrating the learned velocity field."""
+    if steps < 1:
+        raise ValueError("steps must be >= 1")
     device = device or text.device
     x = torch.randn(shape, device=device)
     dt = 1.0 / steps
     for i in range(steps):
         t = torch.full((shape[0],), 1.0 - i * dt, device=device)
         # Training uses data->noise; sampling follows noise->data.
-        v = model(x, t, text)
+        v = model(x, t, text, text_mask=text_mask)
         x = x - dt * v
     return x
