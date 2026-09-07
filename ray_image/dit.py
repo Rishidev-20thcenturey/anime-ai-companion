@@ -49,7 +49,7 @@ class RAYDiT(nn.Module):
         self.norm = nn.LayerNorm(dim)
         self.out = nn.Linear(dim, patch * patch * latent_channels)
 
-    def forward(self, z, t, text):
+    def forward(self, z, t, text, text_mask=None):
         h, w = z.shape[-2:]
         if h % self.patch or w % self.patch:
             raise ValueError(f"latent size {(h, w)} must be divisible by patch={self.patch}")
@@ -58,16 +58,20 @@ class RAYDiT(nn.Module):
         ph, pw = x.shape[-2:]
         x = x.flatten(2).transpose(1, 2)
 
-        # Deterministic 2D sinusoidal positions: no hard-coded token count.
         pos = self._sinusoidal_2d(ph, pw, x.shape[-1], x.device, x.dtype)
         x = x + pos[None]
 
-        cond = self.time(t) + self.text_proj(text.mean(dim=1))
+        if text_mask is None:
+            pooled = text.mean(dim=1)
+        else:
+            valid = (~text_mask).to(text.dtype).unsqueeze(-1)
+            pooled = (text * valid).sum(dim=1) / valid.sum(dim=1).clamp_min(1.0)
+        cond = self.time(t) + self.text_proj(pooled)
         for block in self.blocks:
             x = block(x, cond)
 
         x = self.out(self.norm(x))
-        b, n, d = x.shape
+        b, n, _ = x.shape
         x = x.view(b, ph, pw, self.patch, self.patch, z.shape[1])
         x = x.permute(0, 5, 1, 3, 2, 4).reshape(b, z.shape[1], h, w)
         return x
