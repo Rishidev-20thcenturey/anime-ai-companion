@@ -35,13 +35,14 @@ class RAYDiTBlock(nn.Module):
 
 
 class RAYDiT(nn.Module):
-    """Small latent diffusion transformer for 64x64x4 latents."""
+    """Tiny latent DiT whose token count is derived from the input latent size."""
 
-    def __init__(self, latent_channels=4, dim=384, depth=12, heads=6, patch=4, cond_dim=384):
+    def __init__(self, latent_channels=4, dim=256, depth=6, heads=4, patch=2, cond_dim=256):
         super().__init__()
+        if dim % heads != 0:
+            raise ValueError("dim must be divisible by heads")
         self.patch = patch
         self.in_proj = nn.Conv2d(latent_channels, dim, patch, patch)
-        self.pos = nn.Parameter(torch.randn(1, 256, dim) * 0.02)
         self.time = TimestepEmbedding(dim)
         self.text_proj = nn.Linear(cond_dim, dim)
         self.blocks = nn.ModuleList([RAYDiTBlock(dim, heads) for _ in range(depth)])
@@ -49,14 +50,38 @@ class RAYDiT(nn.Module):
         self.out = nn.Linear(dim, patch * patch * latent_channels)
 
     def forward(self, z, t, text):
-        x = self.in_proj(z).flatten(2).transpose(1, 2)
-        x = x + self.pos[:, :x.shape[1]]
+        h, w = z.shape[-2:]
+        if h % self.patch or w % self.patch:
+            raise ValueError(f"latent size {(h, w)} must be divisible by patch={self.patch}")
+
+        x = self.in_proj(z)
+        ph, pw = x.shape[-2:]
+        x = x.flatten(2).transpose(1, 2)
+
+        # Deterministic 2D sinusoidal positions: no hard-coded token count.
+        pos = self._sinusoidal_2d(ph, pw, x.shape[-1], x.device, x.dtype)
+        x = x + pos[None]
+
         cond = self.time(t) + self.text_proj(text.mean(dim=1))
         for block in self.blocks:
             x = block(x, cond)
+
         x = self.out(self.norm(x))
         b, n, d = x.shape
-        side = int(n ** 0.5)
-        x = x.reshape(b, side, side, self.patch, self.patch, z.shape[1])
-        x = x.permute(0, 5, 1, 3, 2, 4).reshape(b, z.shape[1], side * self.patch, side * self.patch)
+        x = x.view(b, ph, pw, self.patch, self.patch, z.shape[1])
+        x = x.permute(0, 5, 1, 3, 2, 4).reshape(b, z.shape[1], h, w)
         return x
+
+    @staticmethod
+    def _sinusoidal_2d(h, w, dim, device, dtype):
+        if dim % 4 != 0:
+            raise ValueError("model dim must be divisible by 4 for 2D sinusoidal positions")
+        quarter = dim // 4
+        y = torch.arange(h, device=device, dtype=dtype)
+        x = torch.arange(w, device=device, dtype=dtype)
+        freq = torch.exp(-math.log(10000) * torch.arange(quarter, device=device, dtype=dtype) / max(quarter - 1, 1))
+        yy = y[:, None] * freq[None, :]
+        xx = x[:, None] * freq[None, :]
+        yemb = torch.cat([yy.sin(), yy.cos()], dim=-1)[:, None, :].expand(h, w, quarter * 2)
+        xemb = torch.cat([xx.sin(), xx.cos()], dim=-1)[None, :, :].expand(h, w, quarter * 2)
+        return torch.cat([yemb, xemb], dim=-1).reshape(h * w, dim)
