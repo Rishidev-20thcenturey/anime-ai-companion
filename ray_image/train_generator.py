@@ -20,7 +20,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--vae", required=True)
-    parser.add_argument("--steps", type=int, default=2000)
+    parser.add_argument("--steps", type=int, default=4000)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--save", default="/content/ray_image_v0_1_trained.pt")
@@ -58,11 +58,12 @@ def main():
                 break
             images = images.to(device)
             tokens = torch.stack([encode_text(x, vocab, cfg.max_tokens) for x in captions]).to(device)
+            text_mask = tokens.eq(0)
             with torch.no_grad():
                 z, _, _ = vae.encode(images)
-            text = text_encoder(tokens)
+            text = text_encoder(tokens, mask=text_mask)
             xt, t, target = sample_flow_pair(z)
-            pred = dit(xt, t, text)
+            pred = dit(xt, t, text, text_mask=text_mask)
             loss = F.mse_loss(pred, target)
 
             optimizer.zero_grad(set_to_none=True)
