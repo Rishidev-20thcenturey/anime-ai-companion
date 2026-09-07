@@ -43,7 +43,7 @@ def main():
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--prompt", required=True)
     parser.add_argument("--output", default="generated.png")
-    parser.add_argument("--steps", type=int, default=30)
+    parser.add_argument("--steps", type=int, default=40)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
 
@@ -52,14 +52,16 @@ def main():
     cfg, vocab, vae, text_encoder, dit = load_models(args.checkpoint, device)
 
     tokens = encode_text(args.prompt, vocab, cfg.max_tokens).unsqueeze(0).to(device)
+    text_mask = tokens.eq(0)
     with torch.no_grad():
-        text = text_encoder(tokens)
+        text = text_encoder(tokens, mask=text_mask)
         latent = euler_sample(
             dit,
             text,
             (1, cfg.latent_channels, cfg.latent_size, cfg.latent_size),
             steps=args.steps,
             device=device,
+            text_mask=text_mask,
         )
         image = vae.decode(latent).clamp(0, 1)[0]
 
