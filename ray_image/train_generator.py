@@ -20,10 +20,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True)
     parser.add_argument("--vae", required=True)
-    parser.add_argument("--steps", type=int, default=4000)
+    parser.add_argument("--steps", type=int, default=8000)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--lr", type=float, default=2e-4)
-    parser.add_argument("--save", default="/content/ray_image_v0_1_trained.pt")
+    parser.add_argument("--save", default="/content/ray_image_v0_2_trained.pt")
     args = parser.parse_args()
 
     cfg = RAYConfig()
@@ -42,7 +42,14 @@ def main():
         p.requires_grad_(False)
 
     text_encoder = RAYTextEncoder(cfg.vocab_size, cfg.text_dim, cfg.max_tokens).to(device)
-    dit = RAYDiT(cfg.latent_channels, cfg.model_dim, cfg.depth, cfg.heads, cfg.patch_size, cfg.text_dim).to(device)
+    dit = RAYDiT(
+        cfg.latent_channels,
+        cfg.model_dim,
+        cfg.depth,
+        cfg.heads,
+        cfg.patch_size,
+        cfg.text_dim,
+    ).to(device)
     optimizer = AdamW(
         list(text_encoder.parameters()) + list(dit.parameters()),
         lr=args.lr,
@@ -50,17 +57,24 @@ def main():
         weight_decay=0.01,
     )
 
-    pbar = tqdm(total=args.steps, desc=f"RAY-IMAGE generator ({device})")
+    pbar = tqdm(total=args.steps, desc=f"RAY-IMAGE v0.2 generator ({device})")
     step = 0
     while step < args.steps:
         for images, captions in loader:
             if step >= args.steps:
                 break
             images = images.to(device)
-            tokens = torch.stack([encode_text(x, vocab, cfg.max_tokens) for x in captions]).to(device)
+            tokens = torch.stack(
+                [encode_text(x, vocab, cfg.max_tokens) for x in captions]
+            ).to(device)
             text_mask = tokens.eq(0)
+
+            # Use the VAE mean latent, not a fresh stochastic sample, so the
+            # tiny semantic experiment gets a deterministic image target.
             with torch.no_grad():
-                z, _, _ = vae.encode(images)
+                _, mean, _ = vae.encode(images)
+                z = mean
+
             text = text_encoder(tokens, mask=text_mask)
             xt, t, target = sample_flow_pair(z)
             pred = dit(xt, t, text, text_mask=text_mask)
@@ -68,7 +82,8 @@ def main():
 
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(list(text_encoder.parameters()) + list(dit.parameters()), 1.0)
+            trainable = list(text_encoder.parameters()) + list(dit.parameters())
+            torch.nn.utils.clip_grad_norm_(trainable, 1.0)
             optimizer.step()
             step += 1
             pbar.update(1)
@@ -85,7 +100,7 @@ def main():
             "text_encoder": text_encoder.state_dict(),
             "dit": dit.state_dict(),
             "step": step,
-            "stage": "generator",
+            "stage": "generator_v0.2",
         },
         path,
     )
