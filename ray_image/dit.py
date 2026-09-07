@@ -6,36 +6,66 @@ from torch import nn
 class TimestepEmbedding(nn.Module):
     def __init__(self, dim: int):
         super().__init__()
-        self.proj = nn.Sequential(nn.Linear(dim, dim * 4), nn.SiLU(), nn.Linear(dim * 4, dim))
+        self.proj = nn.Sequential(
+            nn.Linear(dim, dim * 4),
+            nn.SiLU(),
+            nn.Linear(dim * 4, dim),
+        )
         self.dim = dim
 
     def forward(self, t):
         half = self.dim // 2
-        freq = torch.exp(-math.log(10000) * torch.arange(half, device=t.device) / max(half - 1, 1))
+        freq = torch.exp(
+            -math.log(10000)
+            * torch.arange(half, device=t.device)
+            / max(half - 1, 1)
+        )
         x = t.float()[:, None] * freq[None, :]
         emb = torch.cat([x.sin(), x.cos()], dim=-1)
         return self.proj(emb)
 
 
 class RAYDiTBlock(nn.Module):
+    """DiT block with global timestep conditioning and token-level text cross-attention."""
+
     def __init__(self, dim: int, heads: int):
         super().__init__()
         self.norm1 = nn.LayerNorm(dim)
         self.attn = nn.MultiheadAttention(dim, heads, batch_first=True)
+
+        self.norm_cross = nn.LayerNorm(dim)
+        self.cross_attn = nn.MultiheadAttention(dim, heads, batch_first=True)
+
         self.norm2 = nn.LayerNorm(dim)
-        self.mlp = nn.Sequential(nn.Linear(dim, dim * 4), nn.GELU(), nn.Linear(dim * 4, dim))
+        self.mlp = nn.Sequential(
+            nn.Linear(dim, dim * 4),
+            nn.GELU(),
+            nn.Linear(dim * 4, dim),
+        )
         self.cond = nn.Linear(dim, dim * 2)
 
-    def forward(self, x, cond):
+    def forward(self, x, cond, text, text_mask=None):
         scale, shift = self.cond(cond).chunk(2, dim=-1)
         h = self.norm1(x) * (1 + scale[:, None, :]) + shift[:, None, :]
         x = x + self.attn(h, h, h, need_weights=False)[0]
+
+        # Every image token can directly attend to the full text sequence.
+        h = self.norm_cross(x)
+        text_ctx = text
+        x = x + self.cross_attn(
+            h,
+            text_ctx,
+            text_ctx,
+            key_padding_mask=text_mask,
+            need_weights=False,
+        )[0]
+
         x = x + self.mlp(self.norm2(x))
         return x
 
 
 class RAYDiT(nn.Module):
-    """Tiny latent DiT whose token count is derived from the input latent size."""
+    """Tiny latent DiT with token-level text conditioning."""
 
     def __init__(self, latent_channels=4, dim=256, depth=6, heads=4, patch=2, cond_dim=256):
         super().__init__()
@@ -45,6 +75,7 @@ class RAYDiT(nn.Module):
         self.in_proj = nn.Conv2d(latent_channels, dim, patch, patch)
         self.time = TimestepEmbedding(dim)
         self.text_proj = nn.Linear(cond_dim, dim)
+        self.text_ctx_proj = nn.Linear(cond_dim, dim) if cond_dim != dim else nn.Identity()
         self.blocks = nn.ModuleList([RAYDiTBlock(dim, heads) for _ in range(depth)])
         self.norm = nn.LayerNorm(dim)
         self.out = nn.Linear(dim, patch * patch * latent_channels)
@@ -66,9 +97,11 @@ class RAYDiT(nn.Module):
         else:
             valid = (~text_mask).to(text.dtype).unsqueeze(-1)
             pooled = (text * valid).sum(dim=1) / valid.sum(dim=1).clamp_min(1.0)
+
         cond = self.time(t) + self.text_proj(pooled)
+        text_ctx = self.text_ctx_proj(text)
         for block in self.blocks:
-            x = block(x, cond)
+            x = block(x, cond, text_ctx, text_mask=text_mask)
 
         x = self.out(self.norm(x))
         b, n, _ = x.shape
@@ -83,7 +116,11 @@ class RAYDiT(nn.Module):
         quarter = dim // 4
         y = torch.arange(h, device=device, dtype=dtype)
         x = torch.arange(w, device=device, dtype=dtype)
-        freq = torch.exp(-math.log(10000) * torch.arange(quarter, device=device, dtype=dtype) / max(quarter - 1, 1))
+        freq = torch.exp(
+            -math.log(10000)
+            * torch.arange(quarter, device=device, dtype=dtype)
+            / max(quarter - 1, 1)
+        )
         yy = y[:, None] * freq[None, :]
         xx = x[:, None] * freq[None, :]
         yemb = torch.cat([yy.sin(), yy.cos()], dim=-1)[:, None, :].expand(h, w, quarter * 2)
