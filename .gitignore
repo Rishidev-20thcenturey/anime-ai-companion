@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Runtime artifacts / checkpoints / diagnostics
+checkpoints/
+diagnostics/
+data/
+ray_suite/
+*.pt
+
+# Notebook noise
+.ipynb_checkpoints/

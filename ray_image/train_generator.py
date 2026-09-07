@@ -13,6 +13,39 @@ from .flow import sample_flow_pair
 from .utils import build_models, load_checkpoint, load_pretrained, save_checkpoint, set_seed
 
 
+def mse_breakdown(pred, target, center=4):
+    """Per-latent-channel and center-vs-border MSE of the flow objective.
+
+    Diagnostic only -- never used to change the loss. ``pred``/``target`` are
+    [B, C, H, W] flow velocities. Returns a dict of python scalars:
+      flow_mse       : overall MSE
+      per_channel    : list of per-channel MSE
+      center_mse     : MSE over the central ``center x center`` latent block
+      border_mse     : MSE over the surrounding border pixels
+      border_ratio   : border_mse / flow_mse (how much error lives at edges)
+    """
+    err = (pred - target) ** 2
+    flow_mse = float(err.mean())
+    per_channel = err.mean(dim=(0, 2, 3)).tolist()
+    h, w = err.shape[-2], err.shape[-1]
+    ch = min(center, h)
+    cw = min(center, w)
+    y0 = (h - ch) // 2
+    x0 = (w - cw) // 2
+    center_region = err[:, :, y0:y0 + ch, x0:x0 + cw]
+    center_mse = float(center_region.mean())
+    # Border = everything not in the central block.
+    total = err.mean()
+    border_mse = float((total * h * w - center_mse * ch * cw) / (h * w - ch * cw))
+    return {
+        "flow_mse": flow_mse,
+        "per_channel": per_channel,
+        "center_mse": center_mse,
+        "border_mse": border_mse,
+        "border_ratio": border_mse / flow_mse if flow_mse > 0 else float("nan"),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True)
@@ -22,6 +55,10 @@ def main():
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--save", default="checkpoints/ray_image_v0_2_trained.pt")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--diagnostics", action="store_true",
+                        help="log per-channel / center-border flow MSE every "
+                             "--diag-every steps (no effect on the loss)")
+    parser.add_argument("--diag-every", type=int, default=100)
     args = parser.parse_args()
 
     cfg = RAYConfig()
@@ -84,6 +121,15 @@ def main():
             step += 1
             pbar.update(1)
             pbar.set_postfix(flow=f"{loss.item():.4f}")
+
+            if args.diagnostics and (step == 1 or step % args.diag_every == 0):
+                db = mse_breakdown(pred, target)
+                pbar.write(
+                    f"[diag] step={step} flow_mse={db['flow_mse']:.4f} "
+                    f"center={db['center_mse']:.4f} border={db['border_mse']:.4f} "
+                    f"border_ratio={db['border_ratio']:.3f} "
+                    f"per_channel=[{', '.join(f'{v:.4f}' for v in db['per_channel'])}]"
+                )
 
     pbar.close()
     save_checkpoint(

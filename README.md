@@ -93,6 +93,42 @@ python -m ray_image.generate \
   --steps 30
 ```
 
+## 6. Diagnostics (N1) — VAE latent sanity + statistics
+
+Diagnostic only: no architecture change, no training. It checks whether the VAE
+latent preserves color and shape well enough for the generator to learn them.
+
+```bash
+# Reconstruct one clean reference image per class via the deterministic mean
+# latent, score them with the existing 12-class evaluator, and estimate latent
+# statistics for later whitening (N2).
+python -m ray_image.probe_vae_latents \
+  --vae-checkpoint checkpoints/vae.pt \
+  --manifest data/toy/manifest.jsonl \
+  --outdir diagnostics/n1 \
+  --size 64 --seed 1337 --stats-samples 512 --stats-batch 32
+```
+
+Outputs under `--outdir`:
+- `reconstructions/{color}_{shape}.png` — 12 deterministic reconstructions.
+- `vae_latent_stats.json` — per-channel & global mean/std/min/max (reused by N2).
+- `probe_report.json` — machine-readable summary incl. evaluator accuracy.
+
+`tools/make_toy_dataset.py` and the probe share one drawing implementation
+(`ray_image/toy.py`), so reconstruction references match the training
+distribution.
+
+Optional generator diagnostic logging (does NOT change the objective) can be
+enabled while training the generator to watch per-latent-channel and
+center-vs-border flow MSE:
+
+```bash
+python -m ray_image.train_generator \
+  --manifest data/toy/manifest.jsonl --vae checkpoints/vae.pt \
+  --steps 8000 --batch-size 8 --save checkpoints/ray_image_stage2.pt \
+  --diagnostics --diag-every 100
+```
+
 ## Dataset format
 
 `manifest.jsonl` contains one JSON object per line:

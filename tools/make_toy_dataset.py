@@ -2,46 +2,20 @@
 
 Four colors x three shapes are rendered with randomized position, scale, and
 background jitter. The caption remains the semantic class label.
+
+Drawing helpers live in ``ray_image.toy`` so diagnostics can reuse the exact
+same image distribution.
 """
 import argparse
 import json
-import random
+import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+# Allow running as a plain script (`python tools/make_toy_dataset.py`) while
+# still importing the shared package that sits at the repository root.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-
-COLORS = {
-    "red": (220, 60, 60),
-    "green": (60, 190, 100),
-    "blue": (70, 110, 220),
-    "yellow": (230, 190, 60),
-}
-SHAPES = ("circle", "square", "triangle")
-
-
-def draw_shape(size, color_name, shape, seed):
-    rng = random.Random(seed)
-    bg = tuple(rng.randint(238, 250) for _ in range(3))
-    image = Image.new("RGB", (size, size), bg)
-    draw = ImageDraw.Draw(image)
-    box_size = rng.randint(int(size * 0.42), int(size * 0.70))
-    cx = rng.randint(size // 3, size * 2 // 3)
-    cy = rng.randint(size // 3, size * 2 // 3)
-    half = box_size // 2
-    x0 = max(2, cx - half)
-    y0 = max(2, cy - half)
-    x1 = min(size - 2, cx + half)
-    y1 = min(size - 2, cy + half)
-    color = COLORS[color_name]
-
-    if shape == "circle":
-        draw.ellipse((x0, y0, x1, y1), fill=color)
-    elif shape == "square":
-        draw.rectangle((x0, y0, x1, y1), fill=color)
-    else:
-        draw.polygon([(cx, y0), (x1, y1), (x0, y1)], fill=color)
-    return image
+from ray_image.toy import CLASS_COMBOS, SHAPES, draw_shape  # noqa: E402
 
 
 def main():
@@ -57,10 +31,9 @@ def main():
     image_dir.mkdir(parents=True, exist_ok=True)
     manifest = root / "manifest.jsonl"
 
-    combinations = [(c, s) for c in COLORS for s in SHAPES]
     with manifest.open("w", encoding="utf-8") as f:
         for i in range(args.samples):
-            color, shape = combinations[i % len(combinations)]
+            color, shape = CLASS_COMBOS[i % len(CLASS_COMBOS)]
             image = draw_shape(args.size, color, shape, args.seed + i)
             name = f"{i:06d}.png"
             image.save(image_dir / name)
@@ -68,7 +41,7 @@ def main():
             f.write(json.dumps({"image": f"images/{name}", "text": caption}) + "\n")
 
     print(f"created {args.samples} samples")
-    print(f"classes={len(combinations)}")
+    print(f"classes={len(CLASS_COMBOS)}")
     print(f"manifest: {manifest}")
 
 
