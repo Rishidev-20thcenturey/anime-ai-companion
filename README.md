@@ -188,6 +188,29 @@ meaningful numbers (smoke only):
 python -m ray_image.probe_text_smoke
 ```
 
+## 9. N4 — latent/velocity separability probe (diagnostic only, no training)
+
+Measures whether the color-1.0/shape-0.33 collapse is visible on the latent /
+velocity side, on the trained generator checkpoint:
+- VAE latent separability (mean latent L2 for same-color/diff-shape vs
+  same-shape/diff-color),
+- flow-target separability (matched-noise velocity `noise - z` on the t grid),
+- trained-prediction separability (real DiT velocity distances on a shared
+  latent state),
+- a fixed-noise shape-swap probe (red circle/square/triangle over seeds).
+
+```bash
+python -m ray_image.probe_latent_separability \
+  --checkpoint checkpoints/ray_image_stage2_whiten.pt \
+  --outdir /content/n4
+```
+
+Writes `n4_report.json` + `grids/shape_swap/*.png`. Smoke (random-init only):
+
+```bash
+python -m ray_image.n4_smoke
+```
+
 ## Dataset format
 
 `manifest.jsonl` contains one JSON object per line:

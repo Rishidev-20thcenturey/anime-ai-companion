@@ -24,3 +24,5 @@ jobs:
         run: python -m ray_image.whiten_smoke
       - name: Run N3 text-conditioning probe smoke test
         run: python -m ray_image.probe_text_smoke
+      - name: Run N4 separability probe smoke test
+        run: python -m ray_image.n4_smoke
