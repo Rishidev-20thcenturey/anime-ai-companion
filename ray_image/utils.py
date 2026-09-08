@@ -57,6 +57,7 @@ def build_models(cfg: RAYConfig, device, *, vae=True, text_encoder=True, dit=Tru
             cfg.heads,
             cfg.patch_size,
             cfg.text_dim,
+            cross_gate=getattr(cfg, "dit_cross_gate", False),
         ).to(device)
     return modules
 

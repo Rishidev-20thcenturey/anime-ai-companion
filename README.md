@@ -211,6 +211,44 @@ Writes `n4_report.json` + `grids/shape_swap/*.png`. Smoke (random-init only):
 python -m ray_image.n4_smoke
 ```
 
+## 10. N5 — gated cross-attention (controlled architecture experiment)
+
+Single controlled change to the DiT: a per-block learnable scalar gate scales
+the token-level text cross-attention residual, `x = x + gate * cross`. The gate
+is a scalar, independent of token identity/category, and is initialized to `1.0`
+so the gated model starts mathematically identical to the previous architecture.
+
+This is a real training experiment, but the code does not launch training on its
+own. The N5 entry point warm-starts from the N2 baseline checkpoint: it loads all
+compatible N2 weights (VAE, text encoder, DiT, vocab, whitening) and initializes
+only the new gate parameters.
+
+```bash
+# Train N5 (warm-started from N2, same 8000-step budget):
+python -m ray_image.train_n5 \
+  --manifest data/toy/manifest.jsonl \
+  --checkpoint checkpoints/ray_image_stage2_whiten.pt \
+  --steps 8000 --batch-size 16 \
+  --save /content/ray_image_v0_3_n5.pt --seed 0
+
+# Generate + evaluate exactly as N2 (steps 50, seed 42):
+python -m ray_image.generate --checkpoint /content/ray_image_v0_3_n5.pt \
+  --prompt "a blue circle" --output gen.png --steps 50 --seed 42
+```
+
+Checkpoint compatibility is explicit: the N2 checkpoint loads directly (all shared
+weights), and only the new per-block `cross_gate` parameters are newly initialized
+to `1.0`. Smoke / regression (CPU, random-init, no scientific meaning):
+
+```bash
+python -m ray_image.n5_smoke
+```
+
+A standalone one-experiment Colab notebook
+(`notebooks/RAY_IMAGE_N5_STANDALONE_Colab.ipynb`) restores N2 from Drive, runs the
+N5 compatibility smoke, trains only N5, saves the N5 checkpoint + evaluator output
++ image grid under Drive `runs/N5/`.
+
 ## Dataset format
 
 `manifest.jsonl` contains one JSON object per line:

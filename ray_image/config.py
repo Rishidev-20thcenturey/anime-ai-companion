@@ -13,6 +13,10 @@ class RAYConfig:
     text_dim: int = 256
     vocab_size: int = 8192
     max_tokens: int = 64
+    # N5: per-block learnable scalar gate on the token-level text cross-attention
+    # residual. Off by default so gate-free models (N2 baseline) are unchanged and
+    # load strictly.
+    dit_cross_gate: bool = False
 
     @property
     def latent_size(self) -> int:
