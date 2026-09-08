@@ -20,3 +20,5 @@ jobs:
         run: python -m ray_image.train_smoke
       - name: Run N1 probe smoke test
         run: python -m ray_image.probe_smoke
+      - name: Run N2 whitening smoke test
+        run: python -m ray_image.whiten_smoke

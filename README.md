@@ -129,6 +129,39 @@ python -m ray_image.train_generator \
   --diagnostics --diag-every 100
 ```
 
+## 7. N2 — channel-wise latent whitening (optional, one switch)
+
+Single controlled change: normalize each latent channel to ~N(0,1) before the
+flow objective, using the N1 statistics. It rebalances the flow MSE across the
+strongly channel-imbalanced VAE latents. VAE / tokenizer / text encoder / DiT /
+flow objective / sampler / dataset / evaluator are unchanged.
+
+```bash
+# 1) get stats: python -m ray_image.probe_vae_latents ... (see N1 above)
+#    -> produces vae_latent_stats.json with per_channel_mean / per_channel_std
+
+# 2) train the generator with whitening enabled:
+python -m ray_image.train_generator \
+  --manifest data/toy/manifest.jsonl --vae checkpoints/vae.pt \
+  --whiten-stats diagnostics/n1/vae_latent_stats.json \
+  --steps 8000 --batch-size 8 --save checkpoints/ray_image_stage2_whiten.pt
+
+# 3) generate (whitening is embedded in the checkpoint and auto-inverted):
+python -m ray_image.generate \
+  --checkpoint checkpoints/ray_image_stage2_whiten.pt \
+  --prompt "a blue circle" --output generated.png --steps 50
+```
+
+Convention: `z_norm = (z - mean_c) / std_c` applied identically in training and
+generation; `generate.py` inverts (`z = z_norm*std + mean`) before VAE decode.
+The unwhitened baseline is preserved — simply omit `--whiten-stats`.
+
+Verification on CPU (no training):
+
+```bash
+python -m ray_image.whiten_smoke
+```
+
 ## Dataset format
 
 `manifest.jsonl` contains one JSON object per line:

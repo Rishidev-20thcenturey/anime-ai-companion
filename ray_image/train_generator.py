@@ -11,6 +11,7 @@ from .config import RAYConfig
 from .dataset import RAYCaptionDataset, build_vocab, encode_text
 from .flow import sample_flow_pair
 from .utils import build_models, load_checkpoint, load_pretrained, save_checkpoint, set_seed
+from .whiten import LatentNormalizer
 
 
 def mse_breakdown(pred, target, center=4):
@@ -59,6 +60,13 @@ def main():
                         help="log per-channel / center-border flow MSE every "
                              "--diag-every steps (no effect on the loss)")
     parser.add_argument("--diag-every", type=int, default=100)
+    parser.add_argument("--whiten-stats", default=None,
+                        help="path to N1 vae_latent_stats.json; when given, "
+                             "per-channel latent whitening z_norm=(z-mean)/std "
+                             "is applied to the VAE mean latent before the flow "
+                             "objective (the single N2 controlled change). "
+                             "Mean/std are stored in the checkpoint so "
+                             "generate.py can invert them.")
     args = parser.parse_args()
 
     cfg = RAYConfig()
@@ -78,6 +86,15 @@ def main():
     vae.eval()
     for p in vae.parameters():
         p.requires_grad_(False)
+
+    # N2: optional channel-wise latent whitening (single controlled change).
+    whiten = None
+    if args.whiten_stats:
+        whiten = LatentNormalizer.from_stats_json(args.whiten_stats)
+        whiten.validate_channels(cfg.latent_channels)
+        print(f"latent whitening ENABLED from {args.whiten_stats} "
+              f"(mean={[f'{m:.4f}' for m in whiten.mean.tolist()]}, "
+              f"std={[f'{s:.4f}' for s in whiten.std.tolist()]})")
 
     modules = build_models(cfg, device, vae=False)
     text_encoder, dit = modules["text_encoder"], modules["dit"]
@@ -107,6 +124,11 @@ def main():
             with torch.no_grad():
                 _, mean, _ = vae.encode(images)
                 z = mean
+
+            # N2: whiten in the same space the flow objective (and later the
+            # sampler) will see. When disabled this is a no-op -> baseline.
+            if whiten is not None:
+                z = whiten.normalize(z)
 
             text = text_encoder(tokens, mask=text_mask)
             xt, t, target = sample_flow_pair(z)
@@ -141,6 +163,9 @@ def main():
         text_encoder=text_encoder,
         dit=dit,
         stage="generator_v0.2",
+        # Embed the normalizer so generate.py inverts it with the exact stats
+        # that produced the checkpoint (None when whitening is disabled).
+        whiten=whiten.state() if whiten is not None else None,
     )
     print(f"saved generator checkpoint: {args.save}")
 
