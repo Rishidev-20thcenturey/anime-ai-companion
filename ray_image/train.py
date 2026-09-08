@@ -5,7 +5,6 @@ can be resumed later. v0.1 trains the VAE reconstruction path together with
 the latent flow-matching objective.
 """
 import argparse
-from pathlib import Path
 
 import torch
 import torch.nn.functional as F
@@ -15,33 +14,8 @@ from tqdm import tqdm
 
 from .config import RAYConfig
 from .dataset import RAYCaptionDataset, build_vocab, encode_text
-from .dit import RAYDiT
 from .flow import sample_flow_pair
-from .text_encoder import RAYTextEncoder
-from .vae import RAYVAE
-
-
-def vae_loss(recon, image, mean, logvar, beta=1e-4):
-    recon_term = F.mse_loss(recon, image)
-    kl = -0.5 * torch.mean(1 + logvar - mean.square() - logvar.exp())
-    return recon_term + beta * kl, recon_term, kl
-
-
-def save_checkpoint(path, cfg, vocab, vae, text_encoder, dit, optimizer, step):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save(
-        {
-            "config": cfg.__dict__,
-            "vocab": vocab,
-            "vae": vae.state_dict(),
-            "text_encoder": text_encoder.state_dict(),
-            "dit": dit.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "step": step,
-        },
-        path,
-    )
+from .utils import build_models, load_checkpoint, save_checkpoint, set_seed, vae_loss
 
 
 def main():
@@ -52,10 +26,13 @@ def main():
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--save", default="checkpoints/ray_image_v0_1.pt")
     parser.add_argument("--resume", default=None)
+    parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
 
     cfg = RAYConfig()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    set_seed(args.seed)
+
     dataset = RAYCaptionDataset(args.manifest, cfg.image_size)
     if len(dataset) < args.batch_size:
         raise ValueError(f"dataset has {len(dataset)} samples but batch size is {args.batch_size}")
@@ -63,30 +40,17 @@ def main():
     vocab = build_vocab((item["text"] for item in dataset.items), cfg.vocab_size)
     loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, drop_last=True)
 
-    vae = RAYVAE(cfg.latent_channels, cfg.vae_base).to(device)
-    text_encoder = RAYTextEncoder(cfg.vocab_size, cfg.text_dim, cfg.max_tokens).to(device)
-    dit = RAYDiT(
-        cfg.latent_channels,
-        cfg.model_dim,
-        cfg.depth,
-        cfg.heads,
-        cfg.patch_size,
-        cfg.text_dim,
-    ).to(device)
-
-    optimizer = AdamW(
-        list(vae.parameters()) + list(text_encoder.parameters()) + list(dit.parameters()),
-        lr=args.lr,
-        betas=(0.9, 0.99),
-        weight_decay=0.01,
-    )
+    models = build_models(cfg, device)
+    vae, text_encoder, dit = models["vae"], models["text_encoder"], models["dit"]
+    trainable = [*vae.parameters(), *text_encoder.parameters(), *dit.parameters()]
+    optimizer = AdamW(trainable, lr=args.lr, betas=(0.9, 0.99), weight_decay=0.01)
 
     step = 0
     if args.resume:
-        checkpoint = torch.load(args.resume, map_location=device)
-        vae.load_state_dict(checkpoint["vae"])
-        text_encoder.load_state_dict(checkpoint["text_encoder"])
-        dit.load_state_dict(checkpoint["dit"])
+        checkpoint = load_checkpoint(args.resume, device)
+        for name, module in models.items():
+            if name in checkpoint:
+                module.load_state_dict(checkpoint[name])
         if "optimizer" in checkpoint:
             optimizer.load_state_dict(checkpoint["optimizer"])
         step = int(checkpoint.get("step", 0))
@@ -95,6 +59,9 @@ def main():
             vocab = saved_vocab
         print(f"resumed from step={step}: {args.resume}")
 
+    vae.train()
+    text_encoder.train()
+    dit.train()
     pbar = tqdm(total=args.steps, initial=step, desc=f"RAY-IMAGE ({device})")
     while step < args.steps:
         for images, captions in loader:
@@ -102,11 +69,14 @@ def main():
                 break
             images = images.to(device)
             tokens = torch.stack([encode_text(x, vocab, cfg.max_tokens) for x in captions]).to(device)
+            # Pad positions (id 0) must be ignored by self/cross-attention and by
+            # the pooled text conditioning in the DiT.
+            text_mask = tokens.eq(0)
 
             recon, z, mean, logvar = vae(images)
-            text = text_encoder(tokens)
+            text = text_encoder(tokens, mask=text_mask)
             xt, t, target = sample_flow_pair(z.detach())
-            pred = dit(xt, t, text)
+            pred = dit(xt, t, text, text_mask=text_mask)
 
             vae_total, rec, kl = vae_loss(recon, images, mean, logvar)
             flow = F.mse_loss(pred, target)
@@ -114,9 +84,7 @@ def main():
 
             optimizer.zero_grad(set_to_none=True)
             total.backward()
-            torch.nn.utils.clip_grad_norm_(
-                list(vae.parameters()) + list(text_encoder.parameters()) + list(dit.parameters()), 1.0
-            )
+            torch.nn.utils.clip_grad_norm_(trainable, 1.0)
             optimizer.step()
 
             step += 1
@@ -129,7 +97,16 @@ def main():
             )
 
             if step % 100 == 0 or step == args.steps:
-                save_checkpoint(args.save, cfg, vocab, vae, text_encoder, dit, optimizer, step)
+                save_checkpoint(
+                    args.save,
+                    cfg,
+                    step,
+                    vocab=vocab,
+                    vae=vae,
+                    text_encoder=text_encoder,
+                    dit=dit,
+                    optimizer=optimizer,
+                )
 
     pbar.close()
     print(f"saved checkpoint: {args.save}")

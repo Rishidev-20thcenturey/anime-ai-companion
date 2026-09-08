@@ -26,10 +26,22 @@ class TimestepEmbedding(nn.Module):
 
 
 class RAYDiTBlock(nn.Module):
-    """DiT block with global timestep conditioning and token-level text cross-attention."""
+    """DiT block with global timestep conditioning and token-level text cross-attention.
 
-    def __init__(self, dim: int, heads: int):
+    N5 option: when ``cross_gate=True`` a per-block learnable scalar gate scales
+    the token-level text cross-attention residual:
+        x = x + gate * cross
+    The gate is initialized to 1.0 so a gated model starts identical to the
+    previous (ungated) architecture before training. The gate is a single
+    scalar per block, independent of token identity/semantic category.
+    """
+
+    def __init__(self, dim: int, heads: int, cross_gate: bool = False):
         super().__init__()
+        self.cross_gate = None
+        if cross_gate:
+            # Init to 1.0 => gated residual == original (x + cross) at start.
+            self.cross_gate = nn.Parameter(torch.tensor(1.0))
         self.norm1 = nn.LayerNorm(dim)
         self.attn = nn.MultiheadAttention(dim, heads, batch_first=True)
 
@@ -52,13 +64,17 @@ class RAYDiTBlock(nn.Module):
         # Every image token can directly attend to the full text sequence.
         h = self.norm_cross(x)
         text_ctx = text
-        x = x + self.cross_attn(
+        cross = self.cross_attn(
             h,
             text_ctx,
             text_ctx,
             key_padding_mask=text_mask,
             need_weights=False,
         )[0]
+        if self.cross_gate is not None:
+            x = x + self.cross_gate * cross
+        else:
+            x = x + cross
 
         x = x + self.mlp(self.norm2(x))
         return x
@@ -67,7 +83,8 @@ class RAYDiTBlock(nn.Module):
 class RAYDiT(nn.Module):
     """Tiny latent DiT with token-level text conditioning."""
 
-    def __init__(self, latent_channels=4, dim=256, depth=6, heads=4, patch=2, cond_dim=256):
+    def __init__(self, latent_channels=4, dim=256, depth=6, heads=4, patch=2, cond_dim=256,
+                 cross_gate: bool = False):
         super().__init__()
         if dim % heads != 0:
             raise ValueError("dim must be divisible by heads")
@@ -76,7 +93,8 @@ class RAYDiT(nn.Module):
         self.time = TimestepEmbedding(dim)
         self.text_proj = nn.Linear(cond_dim, dim)
         self.text_ctx_proj = nn.Linear(cond_dim, dim) if cond_dim != dim else nn.Identity()
-        self.blocks = nn.ModuleList([RAYDiTBlock(dim, heads) for _ in range(depth)])
+        self.blocks = nn.ModuleList(
+            [RAYDiTBlock(dim, heads, cross_gate=cross_gate) for _ in range(depth)])
         self.norm = nn.LayerNorm(dim)
         self.out = nn.Linear(dim, patch * patch * latent_channels)
 

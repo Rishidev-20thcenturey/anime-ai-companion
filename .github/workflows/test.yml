@@ -16,5 +16,15 @@ jobs:
           python-version: '3.11'
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run smoke test
+      - name: Run architecture smoke test
         run: python -m ray_image.train_smoke
+      - name: Run N1 probe smoke test
+        run: python -m ray_image.probe_smoke
+      - name: Run N2 whitening smoke test
+        run: python -m ray_image.whiten_smoke
+      - name: Run N3 text-conditioning probe smoke test
+        run: python -m ray_image.probe_text_smoke
+      - name: Run N4 separability probe smoke test
+        run: python -m ray_image.n4_smoke
+      - name: Run N5 gated cross-attention smoke test
+        run: python -m ray_image.n5_smoke

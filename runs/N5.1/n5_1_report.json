@@ -1,0 +1,510 @@
+{
+  "experiment": "N5.1",
+  "n5_checkpoint": null,
+  "n2_checkpoint": null,
+  "generation": {
+    "seed": 42,
+    "steps": 50,
+    "prompts": 12
+  },
+  "oracle": {
+    "rows": [
+      {
+        "target": "red_circle",
+        "prompt_color": "red",
+        "prompt_shape": "circle",
+        "empty": false,
+        "bbox_fill": 0.7805212620027435,
+        "bbox_w": 27,
+        "bbox_h": 27,
+        "aspect_ratio": 1.0,
+        "area_frac": 0.138916015625,
+        "centroid": [
+          0.4531,
+          0.5781
+        ],
+        "corners": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "n_pixels": 569,
+        "foreground_mean": [
+          0.8627,
+          0.2353,
+          0.2353
+        ],
+        "circle_score": 0.9809,
+        "square_score": 0.6755,
+        "triangle_score": 0.7,
+        "predicted_shape": "circle",
+        "predicted_color": "red",
+        "shape_correct": true,
+        "color_correct": true
+      },
+      {
+        "target": "red_square",
+        "prompt_color": "red",
+        "prompt_shape": "square",
+        "empty": false,
+        "bbox_fill": 1.0,
+        "bbox_w": 27,
+        "bbox_h": 27,
+        "aspect_ratio": 1.0,
+        "area_frac": 0.177978515625,
+        "centroid": [
+          0.4531,
+          0.5781
+        ],
+        "corners": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "n_pixels": 729,
+        "foreground_mean": [
+          0.8627,
+          0.2353,
+          0.2353
+        ],
+        "circle_score": 0.7895,
+        "square_score": 0.875,
+        "triangle_score": 0.5005,
+        "predicted_shape": "square",
+        "predicted_color": "red",
+        "shape_correct": true,
+        "color_correct": true
+      },
+      {
+        "target": "red_triangle",
+        "prompt_color": "red",
+        "prompt_shape": "triangle",
+        "empty": false,
+        "bbox_fill": 0.5006858710562414,
+        "bbox_w": 27,
+        "bbox_h": 27,
+        "aspect_ratio": 1.0,
+        "area_frac": 0.089111328125,
+        "centroid": [
+          0.4531,
+          0.6482
+        ],
+        "corners": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "n_pixels": 365,
+        "foreground_mean": [
+          0.8627,
+          0.2353,
+          0.2353
+        ],
+        "circle_score": 0.7265,
+        "square_score": 0.4211,
+        "triangle_score": 0.9544,
+        "predicted_shape": "triangle",
+        "predicted_color": "red",
+        "shape_correct": true,
+        "color_correct": true
+      },
+      {
+        "target": "green_circle",
+        "prompt_color": "green",
+        "prompt_shape": "circle",
+        "empty": false,
+        "bbox_fill": 0.7805212620027435,
+        "bbox_w": 27,
+        "bbox_h": 27,
+        "aspect_ratio": 1.0,
+        "area_frac": 0.138916015625,
+        "centroid": [
+          0.4531,
+          0.5781
+        ],
+        "corners": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "n_pixels": 569,
+        "foreground_mean": [
+          0.2353,
+          0.7451,
+          0.3922
+        ],
+        "circle_score": 0.9809,
+        "square_score": 0.6755,
+        "triangle_score": 0.7,
+        "predicted_shape": "circle",
+        "predicted_color": "green",
+        "shape_correct": true,
+        "color_correct": true
+      },
+      {
+        "target": "green_square",
+        "prompt_color": "green",
+        "prompt_shape": "square",
+        "empty": false,
+        "bbox_fill": 1.0,
+        "bbox_w": 27,
+        "bbox_h": 27,
+        "aspect_ratio": 1.0,
+        "area_frac": 0.177978515625,
+        "centroid": [
+          0.4531,
+          0.5781
+        ],
+        "corners": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "n_pixels": 729,
+        "foreground_mean": [
+          0.2353,
+          0.7451,
+          0.3922
+        ],
+        "circle_score": 0.7895,
+        "square_score": 0.875,
+        "triangle_score": 0.5005,
+        "predicted_shape": "square",
+        "predicted_color": "green",
+        "shape_correct": true,
+        "color_correct": true
+      },
+      {
+        "target": "green_triangle",
+        "prompt_color": "green",
+        "prompt_shape": "triangle",
+        "empty": false,
+        "bbox_fill": 0.5006858710562414,
+        "bbox_w": 27,
+        "bbox_h": 27,
+        "aspect_ratio": 1.0,
+        "area_frac": 0.089111328125,
+        "centroid": [
+          0.4531,
+          0.6482
+        ],
+        "corners": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "n_pixels": 365,
+        "foreground_mean": [
+          0.2353,
+          0.7451,
+          0.3922
+        ],
+        "circle_score": 0.7265,
+        "square_score": 0.4211,
+        "triangle_score": 0.9544,
+        "predicted_shape": "triangle",
+        "predicted_color": "green",
+        "shape_correct": true,
+        "color_correct": true
+      },
+      {
+        "target": "blue_circle",
+        "prompt_color": "blue",
+        "prompt_shape": "circle",
+        "empty": false,
+        "bbox_fill": 0.7805212620027435,
+        "bbox_w": 27,
+        "bbox_h": 27,
+        "aspect_ratio": 1.0,
+        "area_frac": 0.138916015625,
+        "centroid": [
+          0.4531,
+          0.5781
+        ],
+        "corners": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "n_pixels": 569,
+        "foreground_mean": [
+          0.2745,
+          0.4314,
+          0.8627
+        ],
+        "circle_score": 0.9809,
+        "square_score": 0.6755,
+        "triangle_score": 0.7,
+        "predicted_shape": "circle",
+        "predicted_color": "blue",
+        "shape_correct": true,
+        "color_correct": true
+      },
+      {
+        "target": "blue_square",
+        "prompt_color": "blue",
+        "prompt_shape": "square",
+        "empty": false,
+        "bbox_fill": 1.0,
+        "bbox_w": 27,
+        "bbox_h": 27,
+        "aspect_ratio": 1.0,
+        "area_frac": 0.177978515625,
+        "centroid": [
+          0.4531,
+          0.5781
+        ],
+        "corners": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "n_pixels": 729,
+        "foreground_mean": [
+          0.2745,
+          0.4314,
+          0.8627
+        ],
+        "circle_score": 0.7895,
+        "square_score": 0.875,
+        "triangle_score": 0.5005,
+        "predicted_shape": "square",
+        "predicted_color": "blue",
+        "shape_correct": true,
+        "color_correct": true
+      },
+      {
+        "target": "blue_triangle",
+        "prompt_color": "blue",
+        "prompt_shape": "triangle",
+        "empty": false,
+        "bbox_fill": 0.5006858710562414,
+        "bbox_w": 27,
+        "bbox_h": 27,
+        "aspect_ratio": 1.0,
+        "area_frac": 0.089111328125,
+        "centroid": [
+          0.4531,
+          0.6482
+        ],
+        "corners": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "n_pixels": 365,
+        "foreground_mean": [
+          0.2745,
+          0.4314,
+          0.8627
+        ],
+        "circle_score": 0.7265,
+        "square_score": 0.4211,
+        "triangle_score": 0.9544,
+        "predicted_shape": "triangle",
+        "predicted_color": "blue",
+        "shape_correct": true,
+        "color_correct": true
+      },
+      {
+        "target": "yellow_circle",
+        "prompt_color": "yellow",
+        "prompt_shape": "circle",
+        "empty": false,
+        "bbox_fill": 0.7805212620027435,
+        "bbox_w": 27,
+        "bbox_h": 27,
+        "aspect_ratio": 1.0,
+        "area_frac": 0.138916015625,
+        "centroid": [
+          0.4531,
+          0.5781
+        ],
+        "corners": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "n_pixels": 569,
+        "foreground_mean": [
+          0.902,
+          0.7451,
+          0.2353
+        ],
+        "circle_score": 0.9809,
+        "square_score": 0.6755,
+        "triangle_score": 0.7,
+        "predicted_shape": "circle",
+        "predicted_color": "yellow",
+        "shape_correct": true,
+        "color_correct": true
+      },
+      {
+        "target": "yellow_square",
+        "prompt_color": "yellow",
+        "prompt_shape": "square",
+        "empty": false,
+        "bbox_fill": 1.0,
+        "bbox_w": 27,
+        "bbox_h": 27,
+        "aspect_ratio": 1.0,
+        "area_frac": 0.177978515625,
+        "centroid": [
+          0.4531,
+          0.5781
+        ],
+        "corners": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "n_pixels": 729,
+        "foreground_mean": [
+          0.902,
+          0.7451,
+          0.2353
+        ],
+        "circle_score": 0.7895,
+        "square_score": 0.875,
+        "triangle_score": 0.5005,
+        "predicted_shape": "square",
+        "predicted_color": "yellow",
+        "shape_correct": true,
+        "color_correct": true
+      },
+      {
+        "target": "yellow_triangle",
+        "prompt_color": "yellow",
+        "prompt_shape": "triangle",
+        "empty": false,
+        "bbox_fill": 0.5006858710562414,
+        "bbox_w": 27,
+        "bbox_h": 27,
+        "aspect_ratio": 1.0,
+        "area_frac": 0.089111328125,
+        "centroid": [
+          0.4531,
+          0.6482
+        ],
+        "corners": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "n_pixels": 365,
+        "foreground_mean": [
+          0.902,
+          0.7451,
+          0.2353
+        ],
+        "circle_score": 0.7265,
+        "square_score": 0.4211,
+        "triangle_score": 0.9544,
+        "predicted_shape": "triangle",
+        "predicted_color": "yellow",
+        "shape_correct": true,
+        "color_correct": true
+      }
+    ],
+    "summary": {
+      "n": 12,
+      "color_accuracy": 1.0,
+      "shape_accuracy": 1.0,
+      "suite_accuracy": 1.0,
+      "per_shape": {
+        "circle": {
+          "n": 4,
+          "shape_correct": 1.0,
+          "bbox_fill_mean": 0.7805,
+          "area_frac_mean": 0.1389,
+          "aspect_ratio_mean": 1.0,
+          "corner_occ_mean": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "classified_as": {
+            "circle": 1.0,
+            "square": 0.0,
+            "triangle": 0.0
+          }
+        },
+        "square": {
+          "n": 4,
+          "shape_correct": 1.0,
+          "bbox_fill_mean": 1.0,
+          "area_frac_mean": 0.178,
+          "aspect_ratio_mean": 1.0,
+          "corner_occ_mean": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "classified_as": {
+            "circle": 0.0,
+            "square": 1.0,
+            "triangle": 0.0
+          }
+        },
+        "triangle": {
+          "n": 4,
+          "shape_correct": 1.0,
+          "bbox_fill_mean": 0.5007,
+          "area_frac_mean": 0.0891,
+          "aspect_ratio_mean": 1.0,
+          "corner_occ_mean": [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "classified_as": {
+            "circle": 0.0,
+            "square": 0.0,
+            "triangle": 1.0
+          }
+        }
+      }
+    }
+  },
+  "evaluator_calibration": {
+    "whole_image_corner_occupancy_for_centered_shapes": 0.0,
+    "note": "evaluate_toy_suite.features computes corners at the four WHOLE-IMAGE corners (mask[:q,:q] etc, q=min(h,w)//4). For centered 64x64 shapes those patches are empty (corners=0 for all shapes), so corner_targets in shape_score (square 0.25, triangle 0/.18) never apply and classification reduces to a threshold on bbox_fill.",
+    "bbox_fill_decision_bands_corners_zero": [
+      {
+        "shape": "triangle",
+        "fill_lo": 0.2,
+        "fill_hi": 0.626
+      },
+      {
+        "shape": "circle",
+        "fill_lo": 0.626,
+        "fill_hi": 0.954
+      },
+      {
+        "shape": "square",
+        "fill_lo": 0.954,
+        "fill_hi": 1.001
+      }
+    ]
+  },
+  "n5": {
+    "source": null,
+    "note": "No N5 checkpoint given. Re-run with --n5-checkpoint on the machine that holds the trained .pt (Drive /content) to obtain measured rows; this run only produced the ideal-geometry oracle."
+  },
+  "n2": null
+}

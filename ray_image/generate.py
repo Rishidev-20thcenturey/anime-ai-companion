@@ -7,35 +7,29 @@ from PIL import Image
 
 from .config import RAYConfig
 from .dataset import encode_text
-from .dit import RAYDiT
 from .flow import euler_sample
-from .text_encoder import RAYTextEncoder
-from .vae import RAYVAE
+from .utils import build_models, load_checkpoint, load_pretrained
+from .whiten import LatentNormalizer
 
 
 def load_models(checkpoint_path, device):
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = load_checkpoint(checkpoint_path, device)
     raw_cfg = checkpoint.get("config", {})
     cfg = RAYConfig(**{k: v for k, v in raw_cfg.items() if k in RAYConfig.__dataclass_fields__})
 
-    vae = RAYVAE(cfg.latent_channels, cfg.vae_base).to(device)
-    text_encoder = RAYTextEncoder(cfg.vocab_size, cfg.text_dim, cfg.max_tokens).to(device)
-    dit = RAYDiT(
-        cfg.latent_channels,
-        cfg.model_dim,
-        cfg.depth,
-        cfg.heads,
-        cfg.patch_size,
-        cfg.text_dim,
-    ).to(device)
+    modules = build_models(cfg, device)
+    load_pretrained(modules, checkpoint, device)
+    for module in modules.values():
+        module.eval()
 
-    vae.load_state_dict(checkpoint["vae"])
-    text_encoder.load_state_dict(checkpoint["text_encoder"])
-    dit.load_state_dict(checkpoint["dit"])
-    vae.eval()
-    text_encoder.eval()
-    dit.eval()
-    return cfg, checkpoint["vocab"], vae, text_encoder, dit
+    # If the generator checkpoint was produced with whitening enabled, recover
+    # the exact per-channel stats so sampling can invert the transform.
+    whiten = None
+    if checkpoint.get("whiten") is not None:
+        whiten = LatentNormalizer.from_state(checkpoint["whiten"])
+        whiten.validate_channels(cfg.latent_channels)
+
+    return cfg, checkpoint["vocab"], modules["vae"], modules["text_encoder"], modules["dit"], whiten
 
 
 def main():
@@ -49,7 +43,7 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(args.seed)
-    cfg, vocab, vae, text_encoder, dit = load_models(args.checkpoint, device)
+    cfg, vocab, vae, text_encoder, dit, whiten = load_models(args.checkpoint, device)
 
     tokens = encode_text(args.prompt, vocab, cfg.max_tokens).unsqueeze(0).to(device)
     text_mask = tokens.eq(0)
@@ -63,6 +57,10 @@ def main():
             device=device,
             text_mask=text_mask,
         )
+        # The sampler operates in whitened space when the checkpoint was trained
+        # with whitening; invert (z = z_norm*std + mean) before decoding.
+        if whiten is not None:
+            latent = whiten.denormalize(latent)
         image = vae.decode(latent).clamp(0, 1)[0]
 
     array = (image.permute(1, 2, 0).cpu().numpy() * 255).round().astype("uint8")
