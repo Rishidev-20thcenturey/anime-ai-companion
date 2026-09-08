@@ -162,6 +162,32 @@ Verification on CPU (no training):
 python -m ray_image.whiten_smoke
 ```
 
+## 8. N3 — text-conditioning probe (diagnostic only, no training)
+
+Investigates why the generator learns color but collapses shape. It reads a
+trained generator checkpoint and measures, with NO training:
+- tokenizer distinctness for color/shape words,
+- token-level text embeddings and padding-mask validity (is the shape token
+  visible?),
+- pooled-embedding distance split (same-shape/diff-color vs
+  same-color/diff-shape),
+- the DiT conditioning-vector effect for prompts differing only in shape,
+- an estimate of whether swapping the shape token materially changes the DiT
+  output (vs swapping the color token).
+
+```bash
+python -m ray_image.probe_text_conditioning \
+  --checkpoint checkpoints/ray_image_stage2_whiten.pt \
+  --outdir diagnostics/n3
+```
+
+Writes `text_conditioning_report.json`. Random-init checkpoints yield NO
+meaningful numbers (smoke only):
+
+```bash
+python -m ray_image.probe_text_smoke
+```
+
 ## Dataset format
 
 `manifest.jsonl` contains one JSON object per line:

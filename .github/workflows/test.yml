@@ -22,3 +22,5 @@ jobs:
         run: python -m ray_image.probe_smoke
       - name: Run N2 whitening smoke test
         run: python -m ray_image.whiten_smoke
+      - name: Run N3 text-conditioning probe smoke test
+        run: python -m ray_image.probe_text_smoke
