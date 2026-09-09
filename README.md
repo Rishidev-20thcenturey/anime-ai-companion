@@ -268,4 +268,4 @@ Image paths are relative to the manifest directory.
 5. Scale from 64px to 128px and 256px.
 6. Add anime-focused training and character identity conditioning.
 7. Extend the latent architecture with temporal modules for RAY-VIDEO.
-8. Scale the architecture toward a larger RAY-IMAGE model, eventually targeting the ~2B parameter class.
+8. Scale the architecture toward a larger RAY-IMAGE model, eventually targeting the ~2B parameter class that beat 10b class family..
