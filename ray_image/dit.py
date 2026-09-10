@@ -83,7 +83,7 @@ class RAYDiTBlock(nn.Module):
 class RAYDiT(nn.Module):
     """Tiny latent DiT with token-level text conditioning."""
 
-    def __init__(self, latent_channels=4, dim=256, depth=6, heads=4, patch=2, cond_dim=256,
+    def __init__(self, latent_channels=16, dim=256, depth=6, heads=4, patch=2, cond_dim=256,
                  cross_gate: bool = False):
         super().__init__()
         if dim % heads != 0:
