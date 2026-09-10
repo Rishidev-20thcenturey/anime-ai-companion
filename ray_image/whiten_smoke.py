@@ -47,22 +47,26 @@ def _norm_stats(channels=16, seed=0):
 
 def main():
     device = torch.device("cpu")
+    cfg = RAYConfig()
+    assert cfg.latent_channels == 16, cfg.latent_channels
+    channels = cfg.latent_channels
     tmp = Path(tempfile.mkdtemp(prefix="ray_whiten_smoke_"))
 
     mean4 = torch.tensor([1.2, -1.6, 1.9, 1.0])
     std4 = torch.tensor([1.4, 1.8, 2.2, 1.5])
-    mean = mean4.repeat(4)
-    std = std4.repeat(4)
+    repeats = channels // mean4.numel()
+    mean = mean4.repeat(repeats)
+    std = std4.repeat(repeats)
     norm = LatentNormalizer(mean, std)
 
     torch.manual_seed(1)
-    z = torch.randn(32, 16, 8, 8)
-    z = z * std.view(1, 16, 1, 1) + mean.view(1, 16, 1, 1)
+    z = torch.randn(32, channels, cfg.latent_size, cfg.latent_size)
+    z = z * std.view(1, channels, 1, 1) + mean.view(1, channels, 1, 1)
     zn = norm.normalize(z)
     per_ch_mean = zn.mean(dim=(0, 2, 3))
     per_ch_std = zn.std(dim=(0, 2, 3), unbiased=False)
-    assert torch.allclose(per_ch_mean, torch.zeros(16), atol=0.1), per_ch_mean
-    assert torch.allclose(per_ch_std, torch.ones(16), atol=0.1), per_ch_std
+    assert torch.allclose(per_ch_mean, torch.zeros(channels), atol=0.1), per_ch_mean
+    assert torch.allclose(per_ch_std, torch.ones(channels), atol=0.1), per_ch_std
 
     z_round = norm.denormalize(zn)
     assert torch.allclose(z_round, z, atol=1e-5), "normalize/denormalize not identity"
@@ -75,15 +79,15 @@ def main():
         if expect_norm:
             assert recovered is not None, "normalizer not recovered"
             assert recovered.state() == whiten_state, "recovered stats differ"
-            latent_norm = torch.randn(1, 16, 8, 8)
+            latent_norm = torch.randn(1, channels, cfg.latent_size, cfg.latent_size)
             raw = recovered.denormalize(latent_norm)
             assert torch.allclose(
-                raw, latent_norm * std.view(1, 16, 1, 1) + mean.view(1, 16, 1, 1),
+                raw, latent_norm * std.view(1, channels, 1, 1) + mean.view(1, channels, 1, 1),
                 atol=1e-5,
             )
             with torch.no_grad():
                 img = vae.decode(raw)
-            assert img.shape == (1, 3, 64, 64)
+            assert img.shape == (1, 3, cfg.image_size, cfg.image_size)
         else:
             assert recovered is None, "baseline unexpectedly has a normalizer"
 
@@ -91,12 +95,13 @@ def main():
     stats_json.write_text(json.dumps({
         "per_channel_mean": mean.tolist(),
         "per_channel_std": std.tolist(),
-        "latent_shape": [16, 8, 8],
+        "latent_shape": [channels, cfg.latent_size, cfg.latent_size],
     }))
     from_stats = LatentNormalizer.from_stats_json(str(stats_json))
     assert torch.allclose(from_stats.mean, mean) and torch.allclose(from_stats.std, std)
 
     print("whiten_smoke: PASS")
+    print(f"  latent channels -> {channels}  [verified]")
     print("  channel whitening -> per-channel mean~0, std~1  [verified]")
     print("  normalize/denormalize round-trip identity       [verified]")
     print("  checkpoint stores/reloads normalizer            [verified]")
