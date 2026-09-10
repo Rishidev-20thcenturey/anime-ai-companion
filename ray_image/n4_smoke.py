@@ -1,15 +1,4 @@
-"""CPU smoke test for the N4 separability probe (no training).
-
-Builds a random-init generator checkpoint (with a whitening normalizer embedded,
-matching the N2 convention) and runs the full N4 probe on CPU with reduced cost.
-This validates that every analysis step executes and the n4_report.json has the
-expected structure.
-
-WARNING: because the checkpoint is random-init, the numbers carry NO scientific
-meaning. This only proves the code path runs. Real interpretation requires the
-trained N2 8000-step generator checkpoint.
-"""
-import json
+"""CPU smoke test for the N4 separability probe (no training)."""
 import tempfile
 from pathlib import Path
 
@@ -28,15 +17,15 @@ def _build_ckpt(path):
     mods = build_models(cfg, device)
     vocab = {"<pad>": 0, "<unk>": 1}
     vocab.update({w: i + 2 for i, w in enumerate(["a"] + list(COLORS) + list(SHAPES))})
-    whiten = LatentNormalizer(torch.tensor([1.2, -1.6, 1.9, 1.0]),
-                              torch.tensor([1.4, 1.8, 2.2, 1.5]))
+    mean4 = torch.tensor([1.2, -1.6, 1.9, 1.0])
+    std4 = torch.tensor([1.4, 1.8, 2.2, 1.5])
+    whiten = LatentNormalizer(mean4.repeat(4), std4.repeat(4))
     save_checkpoint(path, cfg, step=0, vocab=vocab, whiten=whiten.state(),
                     **{k: v for k, v in mods.items()})
     return cfg
 
 
 def main():
-    # Speed up the smoke: use fewer swap seeds and fewer sampling steps.
     orig_seeds = M.SWAP_SEEDS
     M.SWAP_SEEDS = [0]
     try:
@@ -50,7 +39,6 @@ def main():
     finally:
         M.SWAP_SEEDS = orig_seeds
 
-    # Structural assertions.
     assert report["whitening_embedded"] is True
     ls = report["latent_separability"]
     for k in ("same_color_diff_shape", "same_shape_diff_color"):
@@ -62,7 +50,6 @@ def main():
     sw = report["fixed_noise_shape_swap"]
     assert "0" in sw["seeds"] and sw["paths"], sw
 
-    # Report + grid PNGs written.
     assert (outdir / "n4_report.json").exists()
     grid = outdir / "grids" / "shape_swap"
     pngs = list(grid.glob("*.png"))

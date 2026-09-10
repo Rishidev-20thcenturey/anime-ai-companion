@@ -24,7 +24,6 @@ from .whiten import LatentNormalizer
 
 
 def _save_generator_ckpt(path, whiten_state=None, seed=0):
-    """Build random-init models and save a minimal generator-style checkpoint."""
     torch.manual_seed(seed)
     cfg = RAYConfig()
     device = torch.device("cpu")
@@ -38,38 +37,36 @@ def _save_generator_ckpt(path, whiten_state=None, seed=0):
     return cfg
 
 
-def _norm_stats(channels=4, seed=0):
+def _norm_stats(channels=16, seed=0):
     torch.manual_seed(seed)
-    mean = torch.randn(channels) * 2
-    std = torch.rand(channels) * 2 + 0.5
-    return LatentNormalizer(mean, std)
+    mean4 = torch.tensor([1.2, -1.6, 1.9, 1.0])
+    std4 = torch.tensor([1.4, 1.8, 2.2, 1.5])
+    repeats = channels // 4
+    return LatentNormalizer(mean4.repeat(repeats), std4.repeat(repeats))
 
 
 def main():
     device = torch.device("cpu")
     tmp = Path(tempfile.mkdtemp(prefix="ray_whiten_smoke_"))
 
-    # --- Test 1: math. Build data with known channel offsets/scales. ---
-    torch.manual_seed(1)
-    mean = torch.tensor([1.2, -1.6, 1.9, 1.0])
-    std = torch.tensor([1.4, 1.8, 2.2, 1.5])
+    mean4 = torch.tensor([1.2, -1.6, 1.9, 1.0])
+    std4 = torch.tensor([1.4, 1.8, 2.2, 1.5])
+    mean = mean4.repeat(4)
+    std = std4.repeat(4)
     norm = LatentNormalizer(mean, std)
-    # Synthesize latents each channel ~ N(mean_c, std_c).
-    z = torch.randn(32, 4, 8, 8)
-    z = z * std.view(1, 4, 1, 1) + mean.view(1, 4, 1, 1)
 
+    torch.manual_seed(1)
+    z = torch.randn(32, 16, 8, 8)
+    z = z * std.view(1, 16, 1, 1) + mean.view(1, 16, 1, 1)
     zn = norm.normalize(z)
-    # Finite-sample statistics: with 32*64 samples per channel the sampling
-    # error on a mean/std is ~1/sqrt(n) ~ 0.02, so allow ~0.1 here.
     per_ch_mean = zn.mean(dim=(0, 2, 3))
     per_ch_std = zn.std(dim=(0, 2, 3), unbiased=False)
-    assert torch.allclose(per_ch_mean, torch.zeros(4), atol=0.1), per_ch_mean
-    assert torch.allclose(per_ch_std, torch.ones(4), atol=0.1), per_ch_std
+    assert torch.allclose(per_ch_mean, torch.zeros(16), atol=0.1), per_ch_mean
+    assert torch.allclose(per_ch_std, torch.ones(16), atol=0.1), per_ch_std
 
     z_round = norm.denormalize(zn)
     assert torch.allclose(z_round, z, atol=1e-5), "normalize/denormalize not identity"
 
-    # --- Test 2: checkpoint round-trips the normalizer; generation inverts it. ---
     for whiten_state, expect_norm in [(norm.state(), True), (None, False)]:
         ckpt = tmp / ("gen_w.pt" if whiten_state else "gen_raw.pt")
         _save_generator_ckpt(ckpt, whiten_state=whiten_state)
@@ -78,27 +75,23 @@ def main():
         if expect_norm:
             assert recovered is not None, "normalizer not recovered"
             assert recovered.state() == whiten_state, "recovered stats differ"
-            # Simulate the sampler output in whitened space and confirm that
-            # generate's inverse step reproduces the expected raw latent scale.
-            latent_norm = torch.randn(1, 4, 8, 8)
+            latent_norm = torch.randn(1, 16, 8, 8)
             raw = recovered.denormalize(latent_norm)
             assert torch.allclose(
-                raw, latent_norm * std.view(1, 4, 1, 1) + mean.view(1, 4, 1, 1),
+                raw, latent_norm * std.view(1, 16, 1, 1) + mean.view(1, 16, 1, 1),
                 atol=1e-5,
             )
-            # vae.decode must accept the (de-normalized) latent.
             with torch.no_grad():
                 img = vae.decode(raw)
             assert img.shape == (1, 3, 64, 64)
         else:
             assert recovered is None, "baseline unexpectedly has a normalizer"
 
-    # --- Test 3: stats JSON <-> normalizer. ---
     stats_json = tmp / "vae_latent_stats.json"
     stats_json.write_text(json.dumps({
         "per_channel_mean": mean.tolist(),
         "per_channel_std": std.tolist(),
-        "latent_shape": [4, 8, 8],
+        "latent_shape": [16, 8, 8],
     }))
     from_stats = LatentNormalizer.from_stats_json(str(stats_json))
     assert torch.allclose(from_stats.mean, mean) and torch.allclose(from_stats.std, std)

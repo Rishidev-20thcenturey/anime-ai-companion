@@ -7,13 +7,13 @@ class RAYVAE(nn.Module):
 
     For the default 64x64 prototype this maps:
         RGB image:  [B, 3, 64, 64]
-        latent:     [B, 4, 8, 8]
+        latent:     [B, 16, 8, 8]
 
     The architecture is intentionally small for free-GPU experimentation and
     can later be widened/deepened for the larger RAY-IMAGE configurations.
     """
 
-    def __init__(self, latent_channels: int = 4, base_channels: int = 32):
+    def __init__(self, latent_channels: int = 16, base_channels: int = 32):
         super().__init__()
         c = base_channels
         self.encoder = nn.Sequential(
