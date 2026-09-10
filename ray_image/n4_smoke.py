@@ -13,13 +13,15 @@ from .whiten import LatentNormalizer
 
 def _build_ckpt(path):
     cfg = RAYConfig()
+    assert cfg.latent_channels == 16, cfg.latent_channels
     device = torch.device("cpu")
     mods = build_models(cfg, device)
     vocab = {"<pad>": 0, "<unk>": 1}
     vocab.update({w: i + 2 for i, w in enumerate(["a"] + list(COLORS) + list(SHAPES))})
     mean4 = torch.tensor([1.2, -1.6, 1.9, 1.0])
     std4 = torch.tensor([1.4, 1.8, 2.2, 1.5])
-    whiten = LatentNormalizer(mean4.repeat(4), std4.repeat(4))
+    repeats = cfg.latent_channels // mean4.numel()
+    whiten = LatentNormalizer(mean4.repeat(repeats), std4.repeat(repeats))
     save_checkpoint(path, cfg, step=0, vocab=vocab, whiten=whiten.state(),
                     **{k: v for k, v in mods.items()})
     return cfg
@@ -31,9 +33,9 @@ def main():
     try:
         tmp = Path(tempfile.mkdtemp(prefix="ray_n4_smoke_"))
         ckpt = tmp / "gen_random.pt"
-        _build_ckpt(ckpt)
+        cfg = _build_ckpt(ckpt)
         outdir = tmp / "n4"
-        report = M.run_probe(str(ckpt), str(outdir), size=64,
+        report = M.run_probe(str(ckpt), str(outdir), size=cfg.image_size,
                              canonical_seed=1234, steps=6,
                              device=torch.device("cpu"))
     finally:
@@ -56,6 +58,7 @@ def main():
     assert pngs, "no shape-swap PNGs written"
 
     print(f"n4_smoke: PASS (artifacts under {tmp})")
+    print(f"  latent channels = {cfg.latent_channels}")
     print(f"  report keys: {sorted(k for k in report if k not in ('flow_target_separability',))}")
     print(f"  shape-swap PNGs: {len(pngs)}")
 
