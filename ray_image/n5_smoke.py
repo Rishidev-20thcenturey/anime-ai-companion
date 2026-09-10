@@ -46,8 +46,14 @@ def _make_manifest(root: Path, n: int = 24, size: int = 64, seed: int = 7):
 
 
 def _n2_ckpt(path, device, seed=0):
-    """Save a gate-free N2-style generator checkpoint (random-init)."""
-    cfg = RAYConfig()  # dit_cross_gate defaults False
+    """Save a true legacy N2-style generator checkpoint (random-init).
+
+    N2 used 4-channel latents. Keeping this fixture at 4 channels is required
+    because the compatibility test is specifically checking that N5 can warm-
+    start from the legacy N2 checkpoint format without mixing it with N6's
+    16-channel configuration.
+    """
+    cfg = RAYConfig(latent_channels=4)  # N2 compatibility fixture; N6 default is 16.
     torch.manual_seed(seed)
     mods = build_models(cfg, device)
     vocab = {"<pad>": 0, "<unk>": 1, "a": 2, "red": 3, "blue": 4,
