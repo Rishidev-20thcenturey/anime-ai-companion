@@ -13,6 +13,7 @@ from .utils import build_models
 
 def main():
     cfg = RAYConfig()
+    assert cfg.latent_channels == 16, cfg.latent_channels
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     models = build_models(cfg, device)
@@ -22,6 +23,7 @@ def main():
     tokens = torch.randint(0, cfg.vocab_size, (2, cfg.max_tokens), device=device)
 
     recon, z, mean, logvar = vae(images)
+    assert z.shape[1] == cfg.latent_channels, (z.shape, cfg.latent_channels)
     assert z.shape[2:] == (cfg.latent_size, cfg.latent_size), (z.shape, cfg.latent_size)
     assert recon.shape == images.shape, (recon.shape, images.shape)
 
