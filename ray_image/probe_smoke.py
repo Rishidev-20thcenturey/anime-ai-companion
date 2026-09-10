@@ -27,6 +27,7 @@ def _make_manifest(root: Path, size: int = 64, n: int = 24, seed: int = 7):
 
 def main():
     cfg = RAYConfig()
+    assert cfg.latent_channels == 16, cfg.latent_channels
     device = torch.device("cpu")
     tmp = Path(tempfile.mkdtemp(prefix="ray_probe_smoke_"))
 
@@ -61,9 +62,10 @@ def main():
         assert ev.get(key) is not None, f"evaluator did not emit {key}"
 
     _ = json.dumps(summarize_statistics(
-        torch.randn(4, 16, 8, 8), source="unit-test"))
+        torch.randn(4, cfg.latent_channels, cfg.latent_size, cfg.latent_size), source="unit-test"))
 
     print(f"probe_smoke: PASS (artifacts under {tmp})")
+    print(f"  latent channels = {cfg.latent_channels}")
     print(f"  suite_accuracy parsed = {ev['suite_accuracy']}")
 
 
