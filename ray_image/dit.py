@@ -26,21 +26,12 @@ class TimestepEmbedding(nn.Module):
 
 
 class RAYDiTBlock(nn.Module):
-    """DiT block with global timestep conditioning and token-level text cross-attention.
-
-    N5 option: when ``cross_gate=True`` a per-block learnable scalar gate scales
-    the token-level text cross-attention residual:
-        x = x + gate * cross
-    The gate is initialized to 1.0 so a gated model starts identical to the
-    previous (ungated) architecture before training. The gate is a single
-    scalar per block, independent of token identity/semantic category.
-    """
+    """DiT block with global timestep conditioning and variable-length text cross-attention."""
 
     def __init__(self, dim: int, heads: int, cross_gate: bool = False):
         super().__init__()
         self.cross_gate = None
         if cross_gate:
-            # Init to 1.0 => gated residual == original (x + cross) at start.
             self.cross_gate = nn.Parameter(torch.tensor(1.0))
         self.norm1 = nn.LayerNorm(dim)
         self.attn = nn.MultiheadAttention(dim, heads, batch_first=True)
@@ -61,13 +52,12 @@ class RAYDiTBlock(nn.Module):
         h = self.norm1(x) * (1 + scale[:, None, :]) + shift[:, None, :]
         x = x + self.attn(h, h, h, need_weights=False)[0]
 
-        # Every image token can directly attend to the full text sequence.
+        # MultiheadAttention accepts arbitrary text sequence lengths [B, L, E].
         h = self.norm_cross(x)
-        text_ctx = text
         cross = self.cross_attn(
             h,
-            text_ctx,
-            text_ctx,
+            text,
+            text,
             key_padding_mask=text_mask,
             need_weights=False,
         )[0]
@@ -83,7 +73,7 @@ class RAYDiTBlock(nn.Module):
 class RAYDiT(nn.Module):
     """Tiny latent DiT with token-level text conditioning."""
 
-    def __init__(self, latent_channels=16, dim=256, depth=6, heads=4, patch=2, cond_dim=256,
+    def __init__(self, latent_channels=16, dim=256, depth=6, heads=4, patch=2, cond_dim=2560,
                  cross_gate: bool = False):
         super().__init__()
         if dim % heads != 0:
@@ -110,6 +100,9 @@ class RAYDiT(nn.Module):
         pos = self._sinusoidal_2d(ph, pw, x.shape[-1], x.device, x.dtype)
         x = x + pos[None]
 
+        # Qwen3 is commonly returned in bf16/fp16 while the DiT starts in fp32;
+        # cast conditioning once so pooled and token-level projections agree.
+        text = text.to(x.dtype)
         if text_mask is None:
             pooled = text.mean(dim=1)
         else:
