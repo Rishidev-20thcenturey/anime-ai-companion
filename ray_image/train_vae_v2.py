@@ -6,10 +6,11 @@ Dataset: jasperai/monet, streamed from Hugging Face. Each sample exposes a
 Loss schedule:
   0-1999  : L1
   2000-3999: L1 + 0.1 * LPIPS
-  4000+    : L1 + 0.1 * LPIPS + GAN, ramping GAN weight 0 -> 0.05
+  4000+    : L1 + 0.1 * LPIPS + GAN, ramping GAN weight 0 -> 0.02
 
 Every 500 steps the script logs metrics and writes a local checkpoint. When
 HF_TOKEN is available, the same checkpoint is uploaded to the requested HF repo.
+Checkpoints include VAE + optimizer state and can be resumed with --resume.
 """
 
 import argparse
@@ -93,7 +94,8 @@ def upload_checkpoint(local_path: Path, repo_id: str, hf_token: str | None):
     print(f"[HF] uploaded {local_path.name} -> {repo_id}")
 
 
-def save_checkpoint(path: Path, vae, step: int):
+def save_checkpoint(path: Path, vae, g_optimizer, d_optimizer, step: int):
+    """Save model + optimizer state so training can resume without losing progress."""
     torch.save(
         {
             "stage": "vae_v2_n8",
@@ -105,6 +107,10 @@ def save_checkpoint(path: Path, vae, step: int):
                 "base_channels": 64,
             },
             "vae": vae.state_dict(),
+            "optimizer": g_optimizer.state_dict(),
+            "g_optimizer": g_optimizer.state_dict(),
+            "d_optimizer": d_optimizer.state_dict(),
+            "discriminator": d_optimizer.param_groups,
         },
         path,
     )
@@ -116,10 +122,21 @@ def main():
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--start-step", type=int, default=0,
+                        help="Treat training as starting after this step when not resuming.")
+    parser.add_argument("--resume", type=str, default=None,
+                        help="Path to a .pt checkpoint created by this script.")
     parser.add_argument("--output-dir", default="/kaggle/working/ray_image_vae_n8")
     parser.add_argument("--hf-repo", default=HF_DEFAULT_REPO)
     parser.add_argument("--no-hf-upload", action="store_true")
     args = parser.parse_args()
+
+    if args.start_step < 0:
+        raise ValueError("--start-step must be >= 0")
+    if args.resume and args.start_step:
+        raise ValueError("Use either --resume or --start-step, not both")
+    if args.steps < 0:
+        raise ValueError("--steps must be >= 0")
 
     if not torch.cuda.is_available():
         raise RuntimeError("N8 VAE v2 training requires a CUDA GPU")
@@ -148,15 +165,45 @@ def main():
     )
     adv_criterion = nn.BCEWithLogitsLoss()
 
-    pbar = tqdm(total=args.steps, desc=f"RAY-VAE v2 N8 ({device})")
-    last_checkpoint_step = 0
+    last_checkpoint_step = args.start_step
+    if args.resume:
+        checkpoint_path = Path(args.resume)
+        if not checkpoint_path.is_file():
+            raise FileNotFoundError(f"resume checkpoint not found: {checkpoint_path}")
+        checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+        vae.load_state_dict(checkpoint["vae"])
+        if "g_optimizer" in checkpoint:
+            g_optimizer.load_state_dict(checkpoint["g_optimizer"])
+        elif "optimizer" in checkpoint:
+            g_optimizer.load_state_dict(checkpoint["optimizer"])
+        if "d_optimizer" in checkpoint:
+            d_optimizer.load_state_dict(checkpoint["d_optimizer"])
+        last_checkpoint_step = int(checkpoint.get("step", 0))
+        print(f"[resume] loaded {checkpoint_path} at step {last_checkpoint_step}")
 
-    for step in range(args.steps):
-        images = next_batch(iterator, args.batch_size).to(device, non_blocking=True)
+    if args.steps <= last_checkpoint_step:
+        print(
+            f"[done] target steps={args.steps} already reached at step={last_checkpoint_step}"
+        )
+        return
+
+    remaining_steps = args.steps - last_checkpoint_step
+    pbar = tqdm(
+        total=remaining_steps,
+        desc=f"RAY-VAE v2 N8 ({device})",
+    )
+
+    for current_step in range(last_checkpoint_step + 1, args.steps + 1):
+        try:
+            images = next_batch(iterator, args.batch_size).to(device, non_blocking=True)
+        except StopIteration:
+            iterator = iter(dataset)
+            images = next_batch(iterator, args.batch_size).to(device, non_blocking=True)
+
         recon = vae(images)[0]
         l1 = F.l1_loss(recon, images)
 
-        if step < 2000:
+        if current_step <= 2000:
             lpips_loss = l1.new_tensor(0.0)
             gan_loss = l1.new_tensor(0.0)
             adv_w = l1.new_tensor(0.0)
@@ -165,12 +212,12 @@ def main():
             lpips_loss = perceptual(recon * 2.0 - 1.0, images * 2.0 - 1.0).mean()
             recon_total = l1 + 0.1 * lpips_loss
 
-            if step < 4000:
+            if current_step <= 4000:
                 gan_loss = l1.new_tensor(0.0)
                 adv_w = l1.new_tensor(0.0)
                 g_loss = recon_total
             else:
-                adv_w = l1.new_tensor(min(0.05, 0.05 * (step - 4000) / 2000.0))
+                adv_w = l1.new_tensor(min(0.02, 0.02 * (current_step - 4000) / 2000.0))
 
                 d_optimizer.zero_grad(set_to_none=True)
                 real_logits = discriminator(images)
@@ -193,13 +240,13 @@ def main():
 
         pbar.update(1)
         pbar.set_postfix(
+            step=current_step,
             l1=f"{l1.item():.4f}",
             lpips=f"{lpips_loss.item():.4f}",
             gan=f"{gan_loss.item():.4f}",
             adv_w=f"{adv_w.item():.4f}",
         )
 
-        current_step = step + 1
         if current_step % 500 == 0:
             print(
                 f"step={current_step} "
@@ -210,7 +257,7 @@ def main():
                 f"recon_std={recon.std(unbiased=False).item():.6f}"
             )
             ckpt = outdir / f"ray_vae_v2_step_{current_step:07d}.pt"
-            save_checkpoint(ckpt, vae, current_step)
+            save_checkpoint(ckpt, vae, g_optimizer, d_optimizer, current_step)
             print(f"[checkpoint] {ckpt}")
             if not args.no_hf_upload:
                 upload_checkpoint(ckpt, args.hf_repo, os.getenv("HF_TOKEN"))
@@ -219,7 +266,7 @@ def main():
     pbar.close()
     if last_checkpoint_step != args.steps:
         ckpt = outdir / f"ray_vae_v2_step_{args.steps:07d}.pt"
-        save_checkpoint(ckpt, vae, args.steps)
+        save_checkpoint(ckpt, vae, g_optimizer, d_optimizer, args.steps)
         print(f"[checkpoint] {ckpt}")
         if not args.no_hf_upload:
             upload_checkpoint(ckpt, args.hf_repo, os.getenv("HF_TOKEN"))
