@@ -94,8 +94,8 @@ def upload_checkpoint(local_path: Path, repo_id: str, hf_token: str | None):
     print(f"[HF] uploaded {local_path.name} -> {repo_id}")
 
 
-def save_checkpoint(path: Path, vae, g_optimizer, d_optimizer, step: int):
-    """Save model + optimizer state so training can resume without losing progress."""
+def save_checkpoint(path: Path, vae, discriminator, g_optimizer, d_optimizer, step: int):
+    """Save VAE, discriminator, and optimizer states for exact training resume."""
     torch.save(
         {
             "stage": "vae_v2_n8",
@@ -109,8 +109,8 @@ def save_checkpoint(path: Path, vae, g_optimizer, d_optimizer, step: int):
             "vae": vae.state_dict(),
             "optimizer": g_optimizer.state_dict(),
             "g_optimizer": g_optimizer.state_dict(),
+            "discriminator": discriminator.state_dict(),
             "d_optimizer": d_optimizer.state_dict(),
-            "discriminator": d_optimizer.param_groups,
         },
         path,
     )
@@ -176,6 +176,8 @@ def main():
             g_optimizer.load_state_dict(checkpoint["g_optimizer"])
         elif "optimizer" in checkpoint:
             g_optimizer.load_state_dict(checkpoint["optimizer"])
+        if "discriminator" in checkpoint:
+            discriminator.load_state_dict(checkpoint["discriminator"])
         if "d_optimizer" in checkpoint:
             d_optimizer.load_state_dict(checkpoint["d_optimizer"])
         last_checkpoint_step = int(checkpoint.get("step", 0))
@@ -257,16 +259,15 @@ def main():
                 f"recon_std={recon.std(unbiased=False).item():.6f}"
             )
             ckpt = outdir / f"ray_vae_v2_step_{current_step:07d}.pt"
-            save_checkpoint(ckpt, vae, g_optimizer, d_optimizer, current_step)
+            save_checkpoint(ckpt, vae, discriminator, g_optimizer, d_optimizer, current_step)
             print(f"[checkpoint] {ckpt}")
             if not args.no_hf_upload:
                 upload_checkpoint(ckpt, args.hf_repo, os.getenv("HF_TOKEN"))
-            last_checkpoint_step = current_step
 
     pbar.close()
     if last_checkpoint_step != args.steps:
         ckpt = outdir / f"ray_vae_v2_step_{args.steps:07d}.pt"
-        save_checkpoint(ckpt, vae, g_optimizer, d_optimizer, args.steps)
+        save_checkpoint(ckpt, vae, discriminator, g_optimizer, d_optimizer, args.steps)
         print(f"[checkpoint] {ckpt}")
         if not args.no_hf_upload:
             upload_checkpoint(ckpt, args.hf_repo, os.getenv("HF_TOKEN"))
