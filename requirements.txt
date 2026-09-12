@@ -8,3 +8,6 @@ lpips>=0.1.4
 transformers>=4.51.0
 bitsandbytes>=0.43
 accelerate>=1.0
+datasets>=3.0
+webdataset>=0.2.100
+huggingface_hub>=0.24
