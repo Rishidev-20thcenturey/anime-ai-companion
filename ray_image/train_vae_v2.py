@@ -1,7 +1,7 @@
-"""N8 VAE v2 training on streamed MONET images.
+"""N8 VAE v2 training on streamed MONET images via the HF Datasets API.
 
-Dataset: jasperai/monet, webdataset/full-resolution image shards streamed from
-Hugging Face. Images are resized/cropped to 256x256 on the fly.
+Dataset: jasperai/monet, streamed from Hugging Face. Each sample exposes a
+``thumbnail`` PIL image; it is resized to 256x256 on the fly.
 
 Loss schedule:
   0-1999  : L1
@@ -13,27 +13,19 @@ HF_TOKEN is available, the same checkpoint is uploaded to the requested HF repo.
 """
 
 import argparse
-import io
 import os
 from pathlib import Path
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 import lpips
+from datasets import load_dataset
+from huggingface_hub import HfApi
 from PIL import Image
 from torch import nn
 from torch.optim import AdamW
 from tqdm import tqdm
-
-try:
-    import webdataset as wds
-except ImportError as exc:  # pragma: no cover
-    raise RuntimeError("Install webdataset before running N8 VAE v2 training") from exc
-
-try:
-    from huggingface_hub import HfApi
-except ImportError as exc:  # pragma: no cover
-    raise RuntimeError("Install huggingface_hub before running N8 VAE v2 training") from exc
 
 from .vae_v2 import RAYVAE_v2
 
@@ -61,59 +53,29 @@ class PatchGAN(nn.Module):
         return self.net(x)
 
 
-def make_monet_urls(version: str):
-    from huggingface_hub import HfFileSystem
-
-    fs = HfFileSystem()
-    pattern = f"datasets/{MONET_REPO}/{version}/**/*.tar"
-    paths = fs.glob(pattern)
-    if not paths:
-        raise RuntimeError(f"No MONET tar shards found for {version}")
-    return [
-        f"pipe:curl -s -L https://huggingface.co/datasets/{MONET_REPO}/resolve/main/"
-        f"{p.removeprefix(f'datasets/{MONET_REPO}/')}"
-        for p in paths
-    ]
-
-
-def build_stream(version: str, shuffle_buffer: int):
-    urls = make_monet_urls(version)
-    return (
-        wds.WebDataset(urls, shardshuffle=False, nodesplitter=wds.split_by_node)
-        .shuffle(shuffle_buffer)
-        .decode("pil")
-        .to_tuple("jpg")
-    )
-
-
-def preprocess(image, size=256):
-    if isinstance(image, bytes):
-        image = Image.open(io.BytesIO(image))
+def preprocess_thumbnail(image, size=256):
+    """Convert MONET sample['thumbnail'] to a [3,size,size] float tensor."""
+    if not isinstance(image, Image.Image):
+        raise TypeError(f"expected PIL image in sample['thumbnail'], got {type(image)!r}")
     image = image.convert("RGB")
-    w, h = image.size
-    scale = size / min(w, h)
-    image = image.resize((round(w * scale), round(h * scale)), Image.Resampling.LANCZOS)
-    left = (image.width - size) // 2
-    top = (image.height - size) // 2
-    image = image.crop((left, top, left + size, top + size))
-    x = torch.from_numpy(__import__("numpy").array(image)).permute(2, 0, 1).float() / 255.0
-    return x
+    image = image.resize((size, size), Image.Resampling.LANCZOS)
+    array = np.asarray(image, dtype=np.float32) / 255.0
+    return torch.from_numpy(array).permute(2, 0, 1).contiguous()
 
 
-def collate_stream(batch, batch_size):
+def next_batch(iterator, batch_size):
+    """Read batch_size valid MONET thumbnails from the streaming iterator."""
     images = []
-    for sample in batch:
-        try:
-            images.append(preprocess(sample, 256))
-        except Exception:
+    while len(images) < batch_size:
+        sample = next(iterator)
+        image = sample.get("thumbnail")
+        if image is None:
             continue
-    if len(images) != batch_size:
-        return None
+        try:
+            images.append(preprocess_thumbnail(image, 256))
+        except (TypeError, ValueError):
+            continue
     return torch.stack(images)
-
-
-def lpips_input(x):
-    return x * 2.0 - 1.0
 
 
 def upload_checkpoint(local_path: Path, repo_id: str, hf_token: str | None):
@@ -131,14 +93,29 @@ def upload_checkpoint(local_path: Path, repo_id: str, hf_token: str | None):
     print(f"[HF] uploaded {local_path.name} -> {repo_id}")
 
 
+def save_checkpoint(path: Path, vae, step: int):
+    torch.save(
+        {
+            "stage": "vae_v2_n8",
+            "step": step,
+            "config": {
+                "image_size": 256,
+                "latent_channels": 16,
+                "latent_size": 32,
+                "base_channels": 64,
+            },
+            "vae": vae.state_dict(),
+        },
+        path,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--steps", type=int, default=8000)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--monet-version", default="v2.0.0")
-    parser.add_argument("--shuffle-buffer", type=int, default=512)
     parser.add_argument("--output-dir", default="/kaggle/working/ray_image_vae_n8")
     parser.add_argument("--hf-repo", default=HF_DEFAULT_REPO)
     parser.add_argument("--no-hf-upload", action="store_true")
@@ -153,34 +130,29 @@ def main():
     outdir = Path(args.output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
 
+    # MONET is a parquet-backed HF dataset, not WebDataset tar shards.
+    dataset = load_dataset(MONET_REPO, split="train", streaming=True)
+    iterator = iter(dataset)
+
     vae = RAYVAE_v2(latent_channels=16, base_channels=64).to(device)
     discriminator = PatchGAN().to(device)
     perceptual = lpips.LPIPS(net="vgg").to(device).eval()
     for p in perceptual.parameters():
         p.requires_grad_(False)
 
-    g_optimizer = AdamW(vae.parameters(), lr=args.lr, betas=(0.9, 0.99), weight_decay=0.01)
-    d_optimizer = AdamW(discriminator.parameters(), lr=args.lr, betas=(0.9, 0.99), weight_decay=0.01)
+    g_optimizer = AdamW(
+        vae.parameters(), lr=args.lr, betas=(0.9, 0.99), weight_decay=0.01
+    )
+    d_optimizer = AdamW(
+        discriminator.parameters(), lr=args.lr, betas=(0.9, 0.99), weight_decay=0.01
+    )
     adv_criterion = nn.BCEWithLogitsLoss()
 
-    stream = build_stream(args.monet_version, args.shuffle_buffer)
-    iterator = iter(stream)
     pbar = tqdm(total=args.steps, desc=f"RAY-VAE v2 N8 ({device})")
-    last_log = None
+    last_checkpoint_step = 0
 
     for step in range(args.steps):
-        while True:
-            batch = []
-            while len(batch) < args.batch_size:
-                try:
-                    batch.append(next(iterator)[0])
-                except StopIteration:
-                    iterator = iter(build_stream(args.monet_version, args.shuffle_buffer))
-            images = collate_stream(batch, args.batch_size)
-            if images is not None:
-                break
-
-        images = images.to(device, non_blocking=True)
+        images = next_batch(iterator, args.batch_size).to(device, non_blocking=True)
         recon = vae(images)[0]
         l1 = F.l1_loss(recon, images)
 
@@ -190,7 +162,7 @@ def main():
             adv_w = l1.new_tensor(0.0)
             g_loss = l1
         else:
-            lpips_loss = perceptual(lpips_input(recon), lpips_input(images)).mean()
+            lpips_loss = perceptual(recon * 2.0 - 1.0, images * 2.0 - 1.0).mean()
             recon_total = l1 + 0.1 * lpips_loss
 
             if step < 4000:
@@ -238,42 +210,17 @@ def main():
                 f"recon_std={recon.std(unbiased=False).item():.6f}"
             )
             ckpt = outdir / f"ray_vae_v2_step_{current_step:07d}.pt"
-            torch.save(
-                {
-                    "stage": "vae_v2_n8",
-                    "step": current_step,
-                    "config": {
-                        "image_size": 256,
-                        "latent_channels": 16,
-                        "latent_size": 32,
-                        "base_channels": 64,
-                    },
-                    "vae": vae.state_dict(),
-                },
-                ckpt,
-            )
+            save_checkpoint(ckpt, vae, current_step)
             print(f"[checkpoint] {ckpt}")
             if not args.no_hf_upload:
                 upload_checkpoint(ckpt, args.hf_repo, os.getenv("HF_TOKEN"))
-            last_log = current_step
+            last_checkpoint_step = current_step
 
     pbar.close()
-    if last_log != args.steps:
+    if last_checkpoint_step != args.steps:
         ckpt = outdir / f"ray_vae_v2_step_{args.steps:07d}.pt"
-        torch.save(
-            {
-                "stage": "vae_v2_n8",
-                "step": args.steps,
-                "config": {
-                    "image_size": 256,
-                    "latent_channels": 16,
-                    "latent_size": 32,
-                    "base_channels": 64,
-                },
-                "vae": vae.state_dict(),
-            },
-            ckpt,
-        )
+        save_checkpoint(ckpt, vae, args.steps)
+        print(f"[checkpoint] {ckpt}")
         if not args.no_hf_upload:
             upload_checkpoint(ckpt, args.hf_repo, os.getenv("HF_TOKEN"))
 
